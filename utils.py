@@ -48,3 +48,4 @@ if __name__ == "__main__":
     i, l = caption2index(ID2CAP)
     tensor = index2tensor(i, l)
     print(tensor.size())
+    torch.save(tensor, "cached_data/val_cap")
