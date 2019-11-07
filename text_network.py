@@ -1,16 +1,21 @@
 from transformers.modeling_distilbert import DistilBertForSequenceClassification
 from transformers import DistilBertTokenizer
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 
 import utils
 import torch
 
 if __name__ == "__main__":
-    captions, _ = utils.read_caption()
+    captions = torch.load("cached_data/val_cap")
+    train_data = TensorDataset(captions)
+    train_sampler = RandomSampler(train_data)
+    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=8, num_workers=2)
+
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased")
-    for counter, cap in enumerate(captions.values()):
-        assert len(cap) == 1
-        print(cap[0], tokenizer.encode(cap[0]), model(torch.tensor(tokenizer.encode(cap[0]))))
-        if counter > 10:
-            break
+
+    for step, batch in enumerate(train_dataloader):
+        batch = tuple(t.to("cuda") for t in batch)
+        output = model(batch)
+        print(output)
 

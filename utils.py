@@ -36,7 +36,6 @@ def caption2index(id2cap):
 
 
 def index2tensor(indices, longest_length):
-    tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     for sample in indices:
         while len(sample) < longest_length:
             sample.append(0)
