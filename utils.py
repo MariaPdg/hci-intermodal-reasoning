@@ -37,9 +37,9 @@ def new_get(self, index):
     return sample, path
 
 
-def cache_data():
-    ID2CAP, IMAGE2ID = read_caption()
-    traindir = "dataset/val"
+def cache_data(which="val"):
+    ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
+    traindir = "dataset/%s" % which
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     datasets.ImageFolder.__getitem__ = new_get
@@ -80,9 +80,9 @@ def cache_data():
     images = torch.stack(images)
 
     print(images.size(), texts.size(), masks.size())
-    torch.save(images, "cached_data/val_img")
-    torch.save(texts, "cached_data/val_cap")
-    torch.save(masks, "cached_data/val_mask")
+    torch.save(images, "cached_data/%s_img" % which)
+    torch.save(texts, "cached_data/%s_cap" % which)
+    torch.save(masks, "cached_data/%s_mask" % which)
 
 
 if __name__ == "__main__":
