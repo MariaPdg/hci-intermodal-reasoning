@@ -66,8 +66,6 @@ def cache_data(which="val"):
         images.append(image)
         texts.append(sen)
 
-        if step > 3:
-            break
 
     for sample in texts:
         mask = [1] * len(sample)
@@ -86,24 +84,6 @@ def cache_data(which="val"):
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
-    ID2CAP, _ = read_caption()
-    i, l = caption2index(ID2CAP)
-    tensor, tensor2 = index2tensor(i, l)
-    print(tensor.size())
-    torch.save(tensor, "cached_data/val_cap")
-    torch.save(tensor2, "cached_data/val_mask")
-=======
-    # read_caption()
-    cache_data()
->>>>>>> 2719306dd6ea19798354d720f0ea9a3f02ae90fa
-
-    ID2CAP, _ = read_caption("dataset/annotations/captions_train2014.json")
-    i, l = caption2index(ID2CAP)
-    tensor, tensor2 = index2tensor(i, l)
-    print(tensor.size())
-    torch.save(tensor, "cached_data/train_cap")
-    torch.save(tensor2, "cached_data/train_mask")
-
-
+    cache_data("train")
+    cache_data("val")
     
