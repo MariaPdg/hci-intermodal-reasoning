@@ -60,7 +60,7 @@ def new_get(self, index):
     return sample, path
 
 
-def cache_data_helper1(which, limit, return_dict):
+def cache_data_helper1(which, limit):
         ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
         traindir = "dataset/%s" % which
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -97,42 +97,18 @@ def cache_data_helper1(which, limit, return_dict):
         with open('cached_data/%s_text' % which, 'wb') as fp:
             pickle.dump(texts, fp)
         print(images.size(), longest_length)
-        return_dict["l"] = longest_length
 
 
-def cache_data_helper2(which, longest_length):
+def cache_data_helper2(which):
     with open('cached_data/%s_text' % which, 'rb') as fp:
         texts = pickle.load(fp)
     masks = []
-<<<<<<< HEAD
-    tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     longest_length = 0
-    print("caching data")
-    for step, batch in enumerate(train_loader):
-        image, cap = batch[0][0], ID2CAP[IMAGE2ID[preprocess_path(batch[1])[0]]][0]
-        sen = tokenizer.encode("[CLS] " + cap + " [SEP]")
-        if len(sen) > longest_length:
-            longest_length = len(sen)
-        images.append(image)
-        texts.append(sen)
-        if step > limit > 0:
-            break
-    
-    print("start to save")
-    images = torch.stack(images)
-    torch.save(images, "cached_data/%s_img" % which)
-    print(images.size())
+    for du in texts:
+        if len(du) > longest_length:
+            longest_length = len(du)
 
-    time.sleep(5)
-    del images, train_loader, batch, image, cap
-    gc.collect()
-    print("free done")
-    time.sleep(5)
-    
-    print("begin padding")
-=======
     print("begin padding with %d" % longest_length)
->>>>>>> cce77c0ae168129811425ebca01b034c447d22da
     for sample in texts:
         mask = [1] * len(sample)
         while len(sample) < longest_length:
@@ -149,18 +125,20 @@ def cache_data_helper2(which, longest_length):
 
 @slack_sender(webhook_url=SLACK_WEBHOOK, channel="bot")
 def cache_data(which="val", limit=5):
-    manager = multiprocessing.Manager()
-    return_dict = manager.dict()
-    p1 = multiprocessing.Process(target=cache_data_helper1, args=(which, limit, return_dict))
+    p1 = multiprocessing.Process(target=cache_data_helper1, args=(which, limit))
     p1.start()
     p1.join()
     print("step 1 is done")
     time.sleep(5)
 
-    cache_data_helper2(which, return_dict["l"])
+    p2 = multiprocessing.Process(target=cache_data_helper2, args=(which,))
+    p2.start()
+    p2.join()
+    print("step 2 is done")
 
 
 if __name__ == "__main__":
-    cache_data("train", limit=1000)
-    #cache_data("val", limit=-1)
+    cache_data("train", limit=-1)
+    cache_data("val", limit=-1)
+
 
