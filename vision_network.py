@@ -31,6 +31,12 @@ class VisionNet:
     def forward(self, image):
         return self.model.forward_layer(image)
 
+    def parameters(self):
+        return self.model.parameters()
+
+    def named_parameters(self):
+        return self.model.named_parameters()
+
 
 if __name__ == "__main__":
     net = VisionNet()
