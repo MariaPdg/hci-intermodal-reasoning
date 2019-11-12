@@ -4,12 +4,13 @@ import numpy as np
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import termcolor
+import sys
 from transformers import DistilBertTokenizer
 from knockknock import slack_sender
 
 
-SLACK_WEBHOOK = "https://hooks.slack.com/services/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"
-
+sys.stdin = open("webhook_url.txt", "r")
+SLACK_WEBHOOK = sys.stdin.readline().rstrip()
 
 class Logger:
     def __init__(self):
