@@ -5,6 +5,9 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import termcolor
 import sys
+import gc
+import time
+import threading
 from transformers import DistilBertTokenizer
 from knockknock import slack_sender
 
@@ -68,7 +71,7 @@ def cache_data(which="val", limit=5):
             transforms.ToTensor(),
             normalize,
         ])),
-        batch_size=1, shuffle=True,
+        batch_size=1, shuffle=False,
         num_workers=2, pin_memory=True)
 
     images = []
@@ -84,10 +87,21 @@ def cache_data(which="val", limit=5):
             longest_length = len(sen)
         images.append(image)
         texts.append(sen)
-        print(step)
         if step > limit > 0:
             break
-        
+    
+    print("start to save")
+    images = torch.stack(images)
+    torch.save(images, "cached_data/%s_img" % which)
+    print(images.size())
+
+    time.sleep(5)
+    images = None
+    text = None
+    gc.collect()
+    print("free done")
+    time.sleep(5)
+    
     print("begin padding")
     for sample in texts:
         mask = [1] * len(sample)
@@ -97,16 +111,19 @@ def cache_data(which="val", limit=5):
         masks.append(mask)
         assert len(sample) == longest_length == len(mask)
     texts, masks = torch.from_numpy(np.array(texts)), torch.from_numpy(np.array(masks))
-    images = torch.stack(images)
 
-    print(images.size(), texts.size(), masks.size())
-    torch.save(images, "cached_data/%s_img" % which)
+    print(texts.size(), masks.size())
     torch.save(texts, "cached_data/%s_cap" % which)
     torch.save(masks, "cached_data/%s_mask" % which)
 
+    time.sleep(5)
+    del texts, masks
+    gc.collect()
+    print("free done")
+    time.sleep(5)
 
 if __name__ == "__main__":
     
-    cache_data("train", limit=-1)
-    cache_data("val", limit=-1)
+    cache_data("train", limit=1000)
+    #cache_data("val", limit=-1)
 
