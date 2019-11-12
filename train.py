@@ -10,9 +10,9 @@ import vision_network
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 
 
-train_img = torch.load("cached_data/train_img")
-train_cap = torch.load("cached_data/train_cap")
-train_mask = torch.load("cached_data/train_mask")
+train_img = torch.load("cached_data/val_img")
+train_cap = torch.load("cached_data/val_cap")
+train_mask = torch.load("cached_data/val_mask")
 
 val_img = torch.load("cached_data/val_img")
 val_cap = torch.load("cached_data/val_cap")
@@ -33,6 +33,7 @@ vision_net = vision_network.VisionNet(device)
 teacher_net = teacher_network.TeacherNet()
 teacher_net.to(device)
 
+print("Start to train")
 for step, batch in enumerate(train_dataloader):
     img, cap, mask = tuple(t.to(device) for t in batch)
     img_vec = teacher_net.forward(vision_net.forward(img))

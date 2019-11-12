@@ -3,7 +3,23 @@ import torch
 import numpy as np
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+import termcolor
 from transformers import DistilBertTokenizer
+from knockknock import slack_sender
+
+
+SLACK_WEBHOOK = "https://hooks.slack.com/services/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"
+
+
+class Logger:
+    def __init__(self):
+        return
+
+    def info(self, information):
+        print(termcolor.colored("[INFO] %s" % information, "green", attrs=["bold"]))
+
+    def error(self, information):
+        print(termcolor.colored("[ERROR] %s" % information, "red", attrs=["bold"]))
 
 
 def read_caption(filename="dataset/annotations/captions_val2014.json"):
@@ -37,7 +53,8 @@ def new_get(self, index):
     return sample, path
 
 
-def cache_data(which="val"):
+@slack_sender(webhook_url=SLACK_WEBHOOK, channel="bot")
+def cache_data(which="val", limit=5):
     ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
     traindir = "dataset/%s" % which
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -66,6 +83,11 @@ def cache_data(which="val"):
         images.append(image)
         texts.append(sen)
 
+<<<<<<< HEAD
+=======
+        if step > limit > 0:
+            break
+>>>>>>> 31693299088894f90292122826928c146a0437be
 
     for sample in texts:
         mask = [1] * len(sample)
@@ -84,6 +106,13 @@ def cache_data(which="val"):
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     cache_data("train")
     cache_data("val")
     
+=======
+    # read_caption()
+    cache_data("train", limit=-1)
+    cache_data("val", limit=-1)
+
+>>>>>>> 31693299088894f90292122826928c146a0437be
