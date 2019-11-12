@@ -96,8 +96,7 @@ def cache_data(which="val", limit=5):
     print(images.size())
 
     time.sleep(5)
-    images = None
-    text = None
+    del images, train_loader, batch, image, cap
     gc.collect()
     print("free done")
     time.sleep(5)
