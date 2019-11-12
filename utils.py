@@ -8,12 +8,15 @@ import sys
 import gc
 import time
 import threading
+import multiprocessing
+import pickle
 from transformers import DistilBertTokenizer
 from knockknock import slack_sender
 
 
 sys.stdin = open("webhook_url.txt", "r")
 SLACK_WEBHOOK = sys.stdin.readline().rstrip()
+
 
 class Logger:
     def __init__(self):
@@ -57,32 +60,28 @@ def new_get(self, index):
     return sample, path
 
 
-@slack_sender(webhook_url=SLACK_WEBHOOK, channel="bot")
-def cache_data(which="val", limit=5):
-    ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
-    traindir = "dataset/%s" % which
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-    datasets.ImageFolder.__getitem__ = new_get
-    train_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(traindir, transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=1, shuffle=False,
-        num_workers=2, pin_memory=True)
+def cache_data_helper1(which, limit, return_dict):
+        ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
+        traindir = "dataset/%s" % which
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+        datasets.ImageFolder.__getitem__ = new_get
+        train_loader = torch.utils.data.DataLoader(
+            datasets.ImageFolder(traindir, transforms.Compose([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normalize,
+            ])),
+            batch_size=1, shuffle=False,
+            num_workers=2, pin_memory=True)
 
-    images = []
-    texts = []
-    masks = []
-    tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
-    longest_length = 0
-    print("caching data")
+        images = []
+        texts = []
+        tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+        longest_length = 0
+        print("caching data")
 
-    def cache_helper():
-        global longest_length, images, texts
         for step, batch in enumerate(train_loader):
             image, cap = batch[0][0], ID2CAP[IMAGE2ID[preprocess_path(batch[1])[0]]][0]
             sen = tokenizer.encode("[CLS] " + cap + " [SEP]")
@@ -95,18 +94,17 @@ def cache_data(which="val", limit=5):
         print("start to save")
         images = torch.stack(images)
         torch.save(images, "cached_data/%s_img" % which)
-        print(images.size())
-        print("saving done")
-        time.sleep(5)
+        with open('cached_data/%s_text' % which, 'wb') as fp:
+            pickle.dump(texts, fp)
+        print(images.size(), longest_length)
+        return_dict["l"] = longest_length
 
-    a_thread = threading.Thread(target=cache_helper)
-    a_thread.start()
-    a_thread.join()
 
-    print("free done:", a_thread.is_alive())
-    time.sleep(5)
-    
-    print("begin padding")
+def cache_data_helper2(which, longest_length):
+    with open('cached_data/%s_text' % which, 'rb') as fp:
+        texts = pickle.load(fp)
+    masks = []
+    print("begin padding with %d" % longest_length)
     for sample in texts:
         mask = [1] * len(sample)
         while len(sample) < longest_length:
@@ -120,14 +118,21 @@ def cache_data(which="val", limit=5):
     torch.save(texts, "cached_data/%s_cap" % which)
     torch.save(masks, "cached_data/%s_mask" % which)
 
-    time.sleep(5)
-    del texts, masks
-    gc.collect()
-    print("free done")
+
+@slack_sender(webhook_url=SLACK_WEBHOOK, channel="bot")
+def cache_data(which="val", limit=5):
+    manager = multiprocessing.Manager()
+    return_dict = manager.dict()
+    p1 = multiprocessing.Process(target=cache_data_helper1, args=(which, limit, return_dict))
+    p1.start()
+    p1.join()
+    print("step 1 is done")
     time.sleep(5)
 
+    cache_data_helper2(which, return_dict["l"])
+
+
 if __name__ == "__main__":
-    
     cache_data("train", limit=1000)
     #cache_data("val", limit=-1)
 
