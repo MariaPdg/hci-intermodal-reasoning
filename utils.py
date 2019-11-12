@@ -84,10 +84,11 @@ def cache_data(which="val", limit=5):
             longest_length = len(sen)
         images.append(image)
         texts.append(sen)
-
+        print(step)
         if step > limit > 0:
             break
-
+        
+    print("begin padding")
     for sample in texts:
         mask = [1] * len(sample)
         while len(sample) < longest_length:
