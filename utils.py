@@ -75,6 +75,7 @@ def cache_data(which="val", limit=5):
     masks = []
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     longest_length = 0
+    print("caching data")
     for step, batch in enumerate(train_loader):
         image, cap = batch[0][0], ID2CAP[IMAGE2ID[preprocess_path(batch[1])[0]]][0]
         sen = tokenizer.encode("[CLS] " + cap + " [SEP]")
@@ -83,11 +84,8 @@ def cache_data(which="val", limit=5):
         images.append(image)
         texts.append(sen)
 
-<<<<<<< HEAD
-=======
         if step > limit > 0:
             break
->>>>>>> 31693299088894f90292122826928c146a0437be
 
     for sample in texts:
         mask = [1] * len(sample)
@@ -106,13 +104,7 @@ def cache_data(which="val", limit=5):
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
-    cache_data("train")
-    cache_data("val")
     
-=======
-    # read_caption()
     cache_data("train", limit=-1)
     cache_data("val", limit=-1)
 
->>>>>>> 31693299088894f90292122826928c146a0437be
