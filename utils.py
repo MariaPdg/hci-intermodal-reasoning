@@ -80,26 +80,30 @@ def cache_data(which="val", limit=5):
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     longest_length = 0
     print("caching data")
-    for step, batch in enumerate(train_loader):
-        image, cap = batch[0][0], ID2CAP[IMAGE2ID[preprocess_path(batch[1])[0]]][0]
-        sen = tokenizer.encode("[CLS] " + cap + " [SEP]")
-        if len(sen) > longest_length:
-            longest_length = len(sen)
-        images.append(image)
-        texts.append(sen)
-        if step > limit > 0:
-            break
-    
-    print("start to save")
-    images = torch.stack(images)
-    torch.save(images, "cached_data/%s_img" % which)
-    print(images.size())
 
-    time.sleep(5)
-    images = None
-    text = None
-    gc.collect()
-    print("free done")
+    def cache_helper():
+        global longest_length, images, texts
+        for step, batch in enumerate(train_loader):
+            image, cap = batch[0][0], ID2CAP[IMAGE2ID[preprocess_path(batch[1])[0]]][0]
+            sen = tokenizer.encode("[CLS] " + cap + " [SEP]")
+            if len(sen) > longest_length:
+                longest_length = len(sen)
+            images.append(image)
+            texts.append(sen)
+            if step > limit > 0:
+                break
+        print("start to save")
+        images = torch.stack(images)
+        torch.save(images, "cached_data/%s_img" % which)
+        print(images.size())
+        print("saving done")
+        time.sleep(5)
+
+    a_thread = threading.Thread(target=cache_helper)
+    a_thread.start()
+    a_thread.join()
+
+    print("free done:", a_thread.is_alive())
     time.sleep(5)
     
     print("begin padding")
