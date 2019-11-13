@@ -61,42 +61,46 @@ def new_get(self, index):
 
 
 def cache_data_helper1(which, limit):
-        ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
-        traindir = "dataset/%s" % which
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
-        datasets.ImageFolder.__getitem__ = new_get
-        train_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(traindir, transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-            batch_size=1, shuffle=False,
-            num_workers=2, pin_memory=True)
+    with open('cached_data/%s_images_salicon' % which, 'rb') as fp:
+        image_list = pickle.load(fp)
+    ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
+    traindir = "dataset/%s" % which
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+    datasets.ImageFolder.__getitem__ = new_get
+    train_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(traindir, transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+        ])),
+        batch_size=1, shuffle=False,
+        num_workers=2, pin_memory=True)
 
-        images = []
-        texts = []
-        tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
-        longest_length = 0
-        print("caching data")
+    images = []
+    texts = []
+    tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+    longest_length = 0
+    print("caching data")
 
-        for step, batch in enumerate(train_loader):
-            image, cap = batch[0][0], ID2CAP[IMAGE2ID[preprocess_path(batch[1])[0]]][0]
-            sen = tokenizer.encode("[CLS] " + cap + " [SEP]")
-            if len(sen) > longest_length:
-                longest_length = len(sen)
-            images.append(image)
-            texts.append(sen)
-            if step > limit > 0:
-                break
-        print("start to save")
-        images = torch.stack(images)
-        torch.save(images, "cached_data/%s_img" % which)
-        with open('cached_data/%s_text' % which, 'wb') as fp:
-            pickle.dump(texts, fp)
-        print(images.size(), longest_length)
+    for step, batch in enumerate(train_loader):
+        if preprocess_path(batch[1])[0] not in image_list:
+            continue
+        image, cap = batch[0][0], ID2CAP[IMAGE2ID[preprocess_path(batch[1])[0]]][0]
+        sen = tokenizer.encode("[CLS] " + cap + " [SEP]")
+        if len(sen) > longest_length:
+            longest_length = len(sen)
+        images.append(image)
+        texts.append(sen)
+        if step > limit > 0:
+            break
+    print("start to save")
+    images = torch.stack(images)
+    torch.save(images, "cached_data/%s_img" % which)
+    with open('cached_data/%s_text' % which, 'wb') as fp:
+        pickle.dump(texts, fp)
+    print(images.size(), longest_length)
 
 
 def cache_data_helper2(which):
@@ -137,8 +141,24 @@ def cache_data(which="val", limit=5):
     print("step 2 is done")
 
 
+def read_relevant_images():
+    from os import listdir
+    from os.path import isfile, join
+    mypath = "dataset/images/train"
+    onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
+    print(onlyfiles)
+    with open('cached_data/train_images_salicon', 'wb') as fp:
+        pickle.dump(onlyfiles, fp)
+
+    mypath = "dataset/images/val"
+    onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
+    print(onlyfiles)
+    with open('cached_data/val_images_salicon', 'wb') as fp:
+        pickle.dump(onlyfiles, fp)
+
+
 if __name__ == "__main__":
-    cache_data("train", limit=-1)
-    cache_data("val", limit=-1)
+    cache_data("train", -1)
+    cache_data("val", -1)
 
 

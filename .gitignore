@@ -3,4 +3,5 @@ dataset/
 hci/
 __pycache__/
 cached_data/
+.ipynb_checkpoints/
 webhook_url.txt

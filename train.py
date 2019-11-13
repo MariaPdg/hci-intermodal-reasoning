@@ -22,6 +22,8 @@ val_mask = torch.load("cached_data/val_mask")
 
 DELTA = 0.002
 BATCH_SIZE = 3
+NB_EPOCHS = 100
+LOGGER = utils.Logger()
 
 train_data = TensorDataset(train_img, train_cap, train_mask)
 train_sampler = RandomSampler(train_data)
@@ -63,29 +65,35 @@ params_to_update = list(params_to_update_share) + list(params_to_update_img) + l
 optimizer = optim.Adam(params_to_update, lr=0.0001)
 
 print("Start to train")
-running_loss = 0.0
-running_corrects = 0
-for step, batch in enumerate(train_dataloader):
-    optimizer.zero_grad()
 
-    img, cap, mask = tuple(t.to(device) for t in batch)
-
-    with torch.set_grad_enabled(True):
-
-        img_vec = teacher_net.forward(vision_net.forward(img))
-        txt_vec = teacher_net.forward(text_net.forward(cap, mask))
-
-        loss = ranking_loss(img_vec, txt_vec)
-        preds = teacher_net.predict(img_vec, txt_vec)
-
-        loss.backward()
-        optimizer.step()
-
-        print(loss)
-        print(preds)
-
-    running_loss += loss.item() * BATCH_SIZE
-    running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
-
-    break
+for epoch in range(NB_EPOCHS):
+    running_loss = 0.0
+    running_corrects = 0
+    total_samples = 0
+    for step, batch in enumerate(train_dataloader):
+        optimizer.zero_grad()
+    
+        img, cap, mask = tuple(t.to(device) for t in batch)
+    
+        with torch.set_grad_enabled(True):
+    
+            img_vec = teacher_net.forward(vision_net.forward(img))
+            txt_vec = teacher_net.forward(text_net.forward(cap, mask))
+    
+            loss = ranking_loss(img_vec, txt_vec)
+            preds = teacher_net.predict(img_vec, txt_vec)
+    
+            loss.backward()
+            optimizer.step()
+    
+            print(loss)
+            print(preds)
+    
+        running_loss += loss.item() * BATCH_SIZE
+        running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
+        total_samples += len(preds)
+        break
+        
+    LOGGER.info("train loss = %.f" % running_loss)
+    LOGGER.info("train acc = %.f" % float(running_corrects/total_samples))
 
