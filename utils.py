@@ -14,11 +14,17 @@ from transformers import DistilBertTokenizer
 from knockknock import slack_sender
 
 
+"""
+for sending notification when your code finishes
+"""
 sys.stdin = open("webhook_url.txt", "r")
 SLACK_WEBHOOK = sys.stdin.readline().rstrip()
 
 
 class Logger:
+    """
+    Print with color, useful when there are too much things printed
+    """
     def __init__(self):
         return
 
@@ -49,10 +55,21 @@ def read_caption(filename="dataset/annotations/captions_val2014.json"):
 
 
 def preprocess_path(paths):
+    """
+    To get only image filename from a path
+    :param paths:
+    :return:
+    """
     return list(map(lambda x: x.split("/")[-1], paths))
 
 
 def new_get(self, index):
+    """
+    Also returns the path of the image
+    :param self:
+    :param index:
+    :return:
+    """
     path, _ = self.samples[index]
     sample = self.loader(path)
     if self.transform is not None:
@@ -61,8 +78,10 @@ def new_get(self, index):
 
 
 def cache_data_helper1(which, limit):
+    # Load image list from SALICON
     with open('cached_data/%s_images_salicon' % which, 'rb') as fp:
         image_list = pickle.load(fp)
+
     ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
     traindir = "dataset/%s" % which
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -106,12 +125,15 @@ def cache_data_helper1(which, limit):
 def cache_data_helper2(which):
     with open('cached_data/%s_text' % which, 'rb') as fp:
         texts = pickle.load(fp)
+
+    # longest length to pad
     masks = []
     longest_length = 0
     for du in texts:
         if len(du) > longest_length:
             longest_length = len(du)
 
+    # Pad all sentences to the same length
     print("begin padding with %d" % longest_length)
     for sample in texts:
         mask = [1] * len(sample)
@@ -129,12 +151,20 @@ def cache_data_helper2(which):
 
 @slack_sender(webhook_url=SLACK_WEBHOOK, channel="bot")
 def cache_data(which="val", limit=5):
+    """
+    Cache data into disk
+    :param which: train dataset or val dataset
+    :param limit: how many samples to load (-1 for all)
+    :return:
+    """
+    # Load images, transform them, save them and clear memory
     p1 = multiprocessing.Process(target=cache_data_helper1, args=(which, limit))
     p1.start()
     p1.join()
     print("step 1 is done")
     time.sleep(5)
 
+    # Load captions, pad them, save them and clear memory
     p2 = multiprocessing.Process(target=cache_data_helper2, args=(which,))
     p2.start()
     p2.join()
@@ -142,6 +172,10 @@ def cache_data(which="val", limit=5):
 
 
 def read_relevant_images():
+    """
+    Indentifying which images in MS-coco have gaze data in SALICON
+    :return:
+    """
     from os import listdir
     from os.path import isfile, join
     mypath = "dataset/images/train"
