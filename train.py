@@ -20,8 +20,11 @@ val_img = torch.load("cached_data/val_img")
 val_cap = torch.load("cached_data/val_cap")
 val_mask = torch.load("cached_data/val_mask")
 
+print("Loaded train data", train_img.size(), train_cap.size(), train_mask.size())
+print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
+
 DELTA = 0.002
-BATCH_SIZE = 3
+BATCH_SIZE = 8
 NB_EPOCHS = 100
 LOGGER = utils.Logger()
 
@@ -32,7 +35,7 @@ valid_data = TensorDataset(val_img, val_cap, val_mask)
 valid_sampler = SequentialSampler(valid_data)
 valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE * 8, num_workers=2)
 
-device = "cpu"
+device = "cuda"
 text_net = text_network.TextNet(device)
 vision_net = vision_network.VisionNet(device)
 teacher_net = teacher_network.TeacherNet()
@@ -70,9 +73,8 @@ for epoch in range(NB_EPOCHS):
     running_loss = 0.0
     running_corrects = 0
     total_samples = 0
+
     for step, batch in enumerate(train_dataloader):
-        optimizer.zero_grad()
-    
         img, cap, mask = tuple(t.to(device) for t in batch)
     
         with torch.set_grad_enabled(True):
@@ -85,15 +87,13 @@ for epoch in range(NB_EPOCHS):
     
             loss.backward()
             optimizer.step()
+            optimizer.zero_grad()
     
-            print(loss)
-            print(preds)
     
         running_loss += loss.item() * BATCH_SIZE
         running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
         total_samples += len(preds)
-        break
         
-    LOGGER.info("train loss = %.f" % running_loss)
-    LOGGER.info("train acc = %.f" % float(running_corrects/total_samples))
+    LOGGER.info("Epoch %d: train loss = %f" % (epoch, running_loss))
+    LOGGER.info("          train acc = %f (%d/%d)" % (float(running_corrects/total_samples), running_corrects, total_samples))
 

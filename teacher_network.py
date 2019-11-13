@@ -22,7 +22,6 @@ class TeacherNet(nn.Module):
         for i in range(0, batch_size):
             for j in range(0, batch_size):
                 embedding_loss[i][j] = 1 - nn.functional.cosine_similarity(x_reprets[i], y_reprets[j], dim=-1)
-        print(embedding_loss)
         preds = torch.argmin(embedding_loss, dim=1)  # return the index of minimal of each row
         return preds
 
