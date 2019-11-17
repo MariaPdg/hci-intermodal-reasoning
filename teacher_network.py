@@ -32,7 +32,7 @@ class RankingLossFunc(nn.Module):
         self.delta = delta
 
     def forward(self, X, Y):
-        assert (X.shape[0] == Y.shape[0])
+        assert (X.shape[0] == Y.shape[0] > 0)
         loss = 0
         num_of_samples = X.shape[0]
 

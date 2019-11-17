@@ -5,3 +5,8 @@ __pycache__/
 cached_data/
 .ipynb_checkpoints/
 webhook_url.txt
+img_faulty
+mask_faulty
+cap_faulty
+img_vec_faulty
+txt_vec_faulty
