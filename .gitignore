@@ -3,6 +3,7 @@ dataset/
 hci/
 __pycache__/
 cached_data/
+models/
 .ipynb_checkpoints/
 webhook_url.txt
 img_faulty
