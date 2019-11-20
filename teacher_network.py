@@ -44,3 +44,60 @@ class RankingLossFunc(nn.Module):
                              - nn.functional.cosine_similarity(X[idx], Y[idx], dim=-1)
                              + nn.functional.cosine_similarity(X[idx], Y[j], dim=-1)) for j in negative_sample_ids])
         return loss
+
+
+class ContrastiveLoss(nn.Module):
+    def __init__(self, temp, dev):
+        super(ContrastiveLoss, self).__init__()
+        self.temp = temp
+        self.dev = dev
+
+    def forward(self, X, Y):
+        assert (X.shape[0] == Y.shape[0] > 0)
+        loss = 0
+        num_of_samples = X.shape[0]
+
+        mask = torch.eye(num_of_samples)
+        for idx in range(num_of_samples):
+            negative_sample_id = [j for j in range(num_of_samples) if mask[idx][j] < 1]
+            pos_logit = torch.matmul(X[idx], Y[idx])
+            neg_logits = []
+            for count, j in enumerate(negative_sample_id):
+                if count == 1:
+                    neg_logits = torch.cat([neg_logits.view(1), torch.matmul(X[idx], Y[j]).view(1)])
+                elif count > 1:
+                    neg_logits = torch.cat([neg_logits, torch.matmul(X[idx], Y[j]).view(1)])
+                else:
+                    neg_logits = torch.matmul(X[idx], Y[j])
+
+            logits = torch.cat([pos_logit.view(1), neg_logits])
+            loss += F.cross_entropy(logits.view((1, logits.size(0)))/self.temp, torch.zeros(1, dtype=torch.long, device=self.dev))
+
+        return loss
+
+    def forward2(self, X, Y):
+        assert (X.shape[0] == Y.shape[0] > 0)
+        loss = 0
+        N = X.shape[0]
+        C = X.shape[1]
+
+        mask = torch.eye(N)
+        negative_sample_ids = []
+        for idx in range(N):
+            negative_sample_ids.append([j for j in range(N) if mask[idx][j] < 1])
+
+        l_pos = torch.matmul(X.view((N, 1, C)), Y.view((N, C, 1)))
+        l_neg = torch.dot(X.view((N, C)), Y[negative_sample_ids, :].view((C, N-1)))
+
+        print(Y)
+        print(Y[negative_sample_ids, :].view((C, N-1)))
+
+        return loss
+
+
+if __name__ == "__main__":
+    u1 = torch.rand((4, 4))
+    u2 = torch.rand((4, 4))
+    loss = ContrastiveLoss(1)
+    out = loss.forward2(u1, u2)
+    print(out)

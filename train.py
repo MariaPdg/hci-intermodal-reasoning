@@ -25,9 +25,9 @@ val_mask = torch.load("cached_data/val_mask")
 print("Loaded train data", train_img.size(), train_cap.size(), train_mask.size())
 print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
 
-DELTA = 0.002
+DELTA = 0.1
 BATCH_SIZE = 8
-NB_EPOCHS = 1
+NB_EPOCHS = 10
 LOGGER = utils.Logger()
 
 train_data = TensorDataset(train_img, train_cap, train_mask)
@@ -41,7 +41,7 @@ device = "cuda:1"
 text_net = text_network.TextNet(device)
 vision_net = vision_network.VisionNet(device)
 teacher_net = teacher_network.TeacherNet()
-ranking_loss = teacher_network.RankingLossFunc(DELTA)
+ranking_loss = teacher_network.ContrastiveLoss(DELTA, device)
 teacher_net.to(device)
 ranking_loss.to(device)
 
