@@ -16,14 +16,6 @@ class TeacherNet(nn.Module):
         out = F.softmax(self.linear3(out), dim=1)
         return out
 
-    def predict(self, x_reprets, y_reprets):
-        batch_size = x_reprets.shape[0]
-        embedding_loss = torch.ones(batch_size, batch_size)
-        for i in range(0, batch_size):
-            for j in range(0, batch_size):
-                embedding_loss[i][j] = 1 - nn.functional.cosine_similarity(x_reprets[i], y_reprets[j], dim=-1)
-        preds = torch.argmin(embedding_loss, dim=1)  # return the index of minimal of each row
-        return preds
 
 
 class RankingLossFunc(nn.Module):
@@ -45,12 +37,30 @@ class RankingLossFunc(nn.Module):
                              + nn.functional.cosine_similarity(X[idx], Y[j], dim=-1)) for j in negative_sample_ids])
         return loss
 
+    def predict(self, x_reprets, y_reprets):
+        batch_size = x_reprets.shape[0]
+        embedding_loss = torch.ones(batch_size, batch_size)
+        for i in range(0, batch_size):
+            for j in range(0, batch_size):
+                embedding_loss[i][j] = 1 - nn.functional.cosine_similarity(x_reprets[i], y_reprets[j], dim=-1)
+        preds = torch.argmin(embedding_loss, dim=1)  # return the index of minimal of each row
+        return preds
+
 
 class ContrastiveLoss(nn.Module):
     def __init__(self, temp, dev):
         super(ContrastiveLoss, self).__init__()
         self.temp = temp
         self.dev = dev
+
+    def predict(self, x_reprets, y_reprets):
+        batch_size = x_reprets.shape[0]
+        embedding_loss = torch.ones(batch_size, batch_size)
+        for i in range(0, batch_size):
+            for j in range(0, batch_size):
+                embedding_loss[i][j] = torch.matmul(x_reprets[i], y_reprets[j])
+        preds = torch.argmin(embedding_loss, dim=1)  # return the index of minimal of each row
+        return preds
 
     def forward(self, X, Y):
         assert (X.shape[0] == Y.shape[0] > 0)
