@@ -23,7 +23,7 @@ def main():
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
     PARSER.add_argument("--epochs", help="number of epochs", default=1, type=int)
-    PARSER.add_argument("--batchsize", help="batch size", default=4, type=int)
+    PARSER.add_argument("--batchsize", help="batch size", default=32, type=int)
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=0, type=int)
     PARSER.add_argument("--verbose", help="print information", default=0, type=int)
@@ -59,7 +59,7 @@ def main():
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = SequentialSampler(valid_data)
-    valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE * 2, num_workers=2)
+    valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE, num_workers=2)
     
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
