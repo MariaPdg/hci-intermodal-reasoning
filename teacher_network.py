@@ -53,8 +53,18 @@ class ContrastiveLoss(nn.Module):
         self.temp = temp
         self.dev = dev
 
+    def norm(self, vec):
+        mean_vec = torch.mean(vec, dim=1)
+        std_vec = torch.std(vec, dim=1)
+        for i in range(vec.size(0)):
+            vec[i] -= mean_vec[i]
+            vec[i] /= std_vec[i]
+        return vec
+
     def predict(self, x_reprets, y_reprets):
         batch_size = x_reprets.shape[0]
+        x_reprets = self.norm(x_reprets)
+        y_reprets = self.norm(y_reprets)
         embedding_loss = torch.ones(batch_size, batch_size)
         for i in range(0, batch_size):
             for j in range(0, batch_size):
@@ -62,52 +72,50 @@ class ContrastiveLoss(nn.Module):
         preds = torch.argmin(embedding_loss, dim=1)  # return the index of minimal of each row
         return preds
 
-    def forward(self, X, Y):
+    def forward(self, q, k, queue):
+        N = q.size(0)
+        C = q.size(1)
+        K = queue.size(0)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        l_neg = torch.mm(q.view(N, C), queue.view(C, K))
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        labels = torch.zeros(N, dtype=torch.long, device=self.dev)
+        loss = F.cross_entropy(logits/self.temp, labels)
+        return loss
+
+    def forward3(self, X, Y, queue):
         assert (X.shape[0] == Y.shape[0] > 0)
         loss = 0
         num_of_samples = X.shape[0]
 
-        mask = torch.eye(num_of_samples)
         for idx in range(num_of_samples):
-            negative_sample_id = [j for j in range(num_of_samples) if mask[idx][j] < 1]
             pos_logit = torch.matmul(X[idx], Y[idx])
             neg_logits = []
-            for count, j in enumerate(negative_sample_id):
+            for count in range(queue.size(0)):
                 if count == 1:
-                    neg_logits = torch.cat([neg_logits.view(1), torch.matmul(X[idx], Y[j]).view(1)])
+                    neg_logits = torch.cat([neg_logits.view(1), torch.matmul(X[idx], queue[count]).view(1)])
                 elif count > 1:
-                    neg_logits = torch.cat([neg_logits, torch.matmul(X[idx], Y[j]).view(1)])
+                    neg_logits = torch.cat([neg_logits, torch.matmul(X[idx], queue[count]).view(1)])
                 else:
-                    neg_logits = torch.matmul(X[idx], Y[j])
+                    neg_logits = torch.matmul(X[idx], queue[count])
 
             logits = torch.cat([pos_logit.view(1), neg_logits])
-            loss += F.cross_entropy(logits.view((1, logits.size(0)))/self.temp, torch.zeros(1, dtype=torch.long, device=self.dev))
+            loss += F.cross_entropy(logits.view((1, logits.size(0)))/self.temp,
+                                    torch.zeros(1, dtype=torch.long, device=self.dev))
 
-        return loss
-
-    def forward2(self, X, Y):
-        assert (X.shape[0] == Y.shape[0] > 0)
-        loss = 0
-        N = X.shape[0]
-        C = X.shape[1]
-
-        mask = torch.eye(N)
-        negative_sample_ids = []
-        for idx in range(N):
-            negative_sample_ids.append([j for j in range(N) if mask[idx][j] < 1])
-
-        l_pos = torch.matmul(X.view((N, 1, C)), Y.view((N, C, 1)))
-        l_neg = torch.dot(X.view((N, C)), Y[negative_sample_ids, :].view((C, N-1)))
-
-        print(Y)
-        print(Y[negative_sample_ids, :].view((C, N-1)))
-
-        return loss
+        return loss/num_of_samples
 
 
 if __name__ == "__main__":
-    u1 = torch.rand((4, 4))
-    u2 = torch.rand((4, 4))
-    loss = ContrastiveLoss(1)
-    out = loss.forward2(u1, u2)
-    print(out)
+    u1 = torch.rand((3, 4))
+    u2 = torch.rand((3, 4))
+    du = torch.rand((6, 4))
+    du2 = torch.transpose(du, 0, 1)
+    print(du2.size())
+    loss = ContrastiveLoss(1, "cpu")
+    out = loss.forward(u1, u2, du2)
+
+    out = loss.forward3(u1, u2, du)
+    print(u1)
+    print(loss.norm(u1))
+    print(loss.norm(loss.norm(u1)))
