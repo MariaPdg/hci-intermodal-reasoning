@@ -13,9 +13,8 @@ class TeacherNet(nn.Module):
     def forward(self, inputs):
         out = F.relu(self.linear1(inputs))
         out = F.relu(self.linear2(out))
-        out = F.softmax(self.linear3(out), dim=1)
+        out = F.relu(self.linear3(out))
         return out
-
 
 
 class RankingLossFunc(nn.Module):
@@ -23,18 +22,17 @@ class RankingLossFunc(nn.Module):
         super(RankingLossFunc, self).__init__()
         self.delta = delta
 
-    def forward(self, X, Y):
-        assert (X.shape[0] == Y.shape[0] > 0)
+    def forward(self, q, k, queue):
+        assert (q.shape[0] == k.shape[0] > 0)
         loss = 0
-        num_of_samples = X.shape[0]
+        num_of_samples = q.shape[0]
+        num_of_neg_samples = queue.size(0)
 
-        mask = torch.eye(num_of_samples)
         for idx in range(num_of_samples):
-            negative_sample_ids = [j for j in range(num_of_samples) if mask[idx][j] < 1]
-
             loss += sum([max(0, self.delta
-                             - nn.functional.cosine_similarity(X[idx], Y[idx], dim=-1)
-                             + nn.functional.cosine_similarity(X[idx], Y[j], dim=-1)) for j in negative_sample_ids])
+                             - nn.functional.cosine_similarity(q[idx], k[idx], dim=-1)
+                             + nn.functional.cosine_similarity(q[idx], queue[j], dim=-1))
+                         for j in range(num_of_neg_samples)])
         return loss
 
     def predict(self, x_reprets, y_reprets):
