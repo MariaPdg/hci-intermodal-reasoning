@@ -7,12 +7,15 @@ import torch.optim as optim
 import time
 import argparse
 import sys
+import queue
 
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from knockknock import slack_sender
 
 
 def main():
+
+    NEG_SAMPLES = queue.Queue()
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
     PARSER.add_argument("--epochs", help="number of epochs", default=5, type=int)
@@ -34,7 +37,7 @@ def main():
     print("Loaded train data", train_img.size(), train_cap.size(), train_mask.size())
 
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:1"
+    device = "cuda:0"
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
@@ -63,38 +66,45 @@ def main():
     print("Start to train")
     for epoch in range(NB_EPOCHS):
         
-        for idx in range(1):
+        for idx in range(2):
             LOGGER.info("batch %d===========" % idx)
             samples = [idx, (idx+1) % 2]
             img, cap, mask = tuple(t.to(device) for t in (train_img[samples],
                                                           train_cap[samples],
                                                           train_mask[samples]))
+
             with torch.set_grad_enabled(False):
                 img_feature = vision_net.forward(img)
                 txt_feature = text_net.forward(cap, mask)
 
-            with torch.set_grad_enabled(True):
-                img_vec = teacher_net.forward(img_feature)
-                txt_vec = teacher_net.forward(txt_feature)
+            if NEG_SAMPLES.empty():
+                pass
+            else:
+                with torch.set_grad_enabled(True):
+                    img_vec = teacher_net.forward(img_feature)
+                    txt_vec = teacher_net.forward(txt_feature)
 
-                loss = ranking_loss(img_vec[0].view(1, 10),
-                                    txt_vec[0].view(1, 10),
-                                    txt_vec[1].view(1, 10))
-                LOGGER.error("Loss is %f" % loss.item())
-                loss.backward()
-                logits = ranking_loss.return_logits(img_vec[0].view(1, 10),
-                                                    txt_vec[0].view(1, 10),
-                                                    txt_vec[1].view(1, 10))
-                LOGGER.info("before============")
-                print(logits)
+                    neg_sample = NEG_SAMPLES.get()[0]
 
-                optimizer.step()
-                optimizer.zero_grad()
+                    loss = ranking_loss(img_vec[0].view(1, 10),
+                                        txt_vec[0].view(1, 10),
+                                        neg_sample.view(1, 10))
 
+                    LOGGER.error("Loss is %f" % loss.item())
+                    loss.backward()
+                    logits = ranking_loss.return_logits(img_vec[0].view(1, 10),
+                                                        txt_vec[0].view(1, 10),
+                                                        neg_sample.view(1, 10))
+                    LOGGER.info("before============")
+                    print(logits)
+
+                    optimizer.step()
+                    optimizer.zero_grad()
 
             with torch.set_grad_enabled(False):
                 img_vec = teacher_net.forward(img_feature)
                 txt_vec = teacher_net.forward(txt_feature)
+                NEG_SAMPLES.put(txt_vec)
                 logits = ranking_loss.return_logits(img_vec[0].view(1, 10),
                                                     txt_vec[0].view(1, 10),
                                                     txt_vec[1].view(1, 10))
