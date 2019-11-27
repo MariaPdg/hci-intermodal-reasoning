@@ -2,6 +2,7 @@ from transformers.modeling_distilbert import DistilBertForSequenceClassification
 from transformers import DistilBertTokenizer, DistilBertConfig
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 
+
 import types
 import utils
 import torch
@@ -33,7 +34,8 @@ class TextNet:
         self.model.forward_layer = types.MethodType(forward_layer, self.model)
         self.model.linear_mat = nn.Linear(in_features=768, out_features=9216)
         self.model.to(dev)
-
+        
+        
     def forward(self, indices, masks):
         _, hidden_vec = self.model(indices, masks)
         hidden_vec2 = self.model.forward_layer(indices, masks)

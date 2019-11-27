@@ -34,15 +34,17 @@ def main():
     print("Loaded train data", train_img.size(), train_cap.size(), train_mask.size())
 
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:0"
+    device = "cuda:1"
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
     teacher_net = torch.nn.Sequential(
         torch.nn.Linear(2048, 4096),
+        torch.nn.ReLU(),
         torch.nn.Linear(4096, 4096),
+        torch.nn.ReLU(),
         torch.nn.Linear(4096, 10),
-
+        torch.nn.Softmax(),
     )
     ranking_loss = teacher_network.ContrastiveLoss(1.0, device)
     teacher_net.to(device)
@@ -51,18 +53,17 @@ def main():
     # optimizer
     params_to_update_share = []
 
-    for name, param in teacher_net.named_parameters():
-        if param.requires_grad is True:
-            params_to_update_share.append(param)
+    for param in teacher_net.parameters():
+        params_to_update_share.append(param)
 
     params_to_update = list(params_to_update_share)
-
-    optimizer = optim.Adam(params_to_update, lr=0.0001)
+    print(len(params_to_update))
+    optimizer = optim.Adam(teacher_net.parameters(), lr=0.001)
 
     print("Start to train")
     for epoch in range(NB_EPOCHS):
-        optimizer.zero_grad()
-        for idx in range(2):
+        
+        for idx in range(1):
             LOGGER.info("batch %d===========" % idx)
             samples = [idx, (idx+1) % 2]
             img, cap, mask = tuple(t.to(device) for t in (train_img[samples],
@@ -75,7 +76,6 @@ def main():
             with torch.set_grad_enabled(True):
                 img_vec = teacher_net.forward(img_feature)
                 txt_vec = teacher_net.forward(txt_feature)
-                txt_vec = txt_vec.detach()
 
                 loss = ranking_loss(img_vec[0].view(1, 10),
                                     txt_vec[0].view(1, 10),
@@ -89,8 +89,12 @@ def main():
                 print(logits)
 
                 optimizer.step()
+                optimizer.zero_grad()
+
 
             with torch.set_grad_enabled(False):
+                img_vec = teacher_net.forward(img_feature)
+                txt_vec = teacher_net.forward(txt_feature)
                 logits = ranking_loss.return_logits(img_vec[0].view(1, 10),
                                                     txt_vec[0].view(1, 10),
                                                     txt_vec[1].view(1, 10))

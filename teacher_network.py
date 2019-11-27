@@ -9,7 +9,7 @@ class TeacherNet(nn.Module):
         super(TeacherNet, self).__init__()
         self.linear1 = nn.Linear(in_features=2048, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
-        self.linear3 = nn.Linear(in_features=4096, out_features=1000)
+        self.linear3 = nn.Linear(in_features=4096, out_features=10)
 
     def forward(self, inputs):
         out = F.relu(self.linear1(inputs))

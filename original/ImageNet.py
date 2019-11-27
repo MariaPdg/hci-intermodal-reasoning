@@ -43,6 +43,7 @@ class Image_Net():
             self.set_parameter_requires_grad(model_ft, feature_extract)
             num_ftrs = model_ft.classifier[6].in_features
             model_ft.classifier[6] = nn.Linear(num_ftrs, 9216)  # reinitialize the 6th layer
+            print(num_ftrs)
             model_ft.to(dev)
 
         else:
