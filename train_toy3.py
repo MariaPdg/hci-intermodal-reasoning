@@ -33,22 +33,18 @@ def main():
 
     print("Loaded train data", train_img.size(), train_cap.size(), train_mask.size())
 
-    DELTA = 10
-    BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
     device = "cuda:0"
-    LOSS_FUNCTIONS = {0: teacher_network.RankingLossFunc(DELTA), 1: teacher_network.ContrastiveLoss(1.0, device)}
-
-    train_data = TensorDataset(train_img, train_cap, train_mask)
-    train_sampler = SequentialSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
     teacher_net = torch.nn.Sequential(
-        torch.nn.Linear(2048, 10),
+        torch.nn.Linear(2048, 4096),
+        torch.nn.Linear(4096, 4096),
+        torch.nn.Linear(4096, 10),
+
     )
-    ranking_loss = LOSS_FUNCTIONS[MY_ARGS.loss_function]
+    ranking_loss = teacher_network.ContrastiveLoss(1.0, device)
     teacher_net.to(device)
     ranking_loss.to(device)
 
@@ -61,18 +57,17 @@ def main():
 
     params_to_update = list(params_to_update_share)
 
-    optimizer = optim.Adam(params_to_update, lr=0.001)
+    optimizer = optim.Adam(params_to_update, lr=0.0001)
 
     print("Start to train")
-    queue = None
     for epoch in range(NB_EPOCHS):
-        """
-        Training
-        """
-
-        for step, batch in enumerate(train_dataloader):
-            img, cap, mask = tuple(t.to(device) for t in batch)
-
+        optimizer.zero_grad()
+        for idx in range(2):
+            LOGGER.info("batch %d===========" % idx)
+            samples = [idx, (idx+1) % 2]
+            img, cap, mask = tuple(t.to(device) for t in (train_img[samples],
+                                                          train_cap[samples],
+                                                          train_mask[samples]))
             with torch.set_grad_enabled(False):
                 img_feature = vision_net.forward(img)
                 txt_feature = text_net.forward(cap, mask)
@@ -81,44 +76,27 @@ def main():
                 img_vec = teacher_net.forward(img_feature)
                 txt_vec = teacher_net.forward(txt_feature)
                 txt_vec = txt_vec.detach()
-                LOGGER.info("==============before")
-                print("img", img_vec[0, :10])
-                print("txt", txt_vec[0, :10])
 
-                if queue is None:
-                    queue = txt_vec.clone()
-                    queue = queue.detach()
-                    continue
-
-                loss = ranking_loss(img_vec, txt_vec, queue)
+                loss = ranking_loss(img_vec[0].view(1, 10),
+                                    txt_vec[0].view(1, 10),
+                                    txt_vec[1].view(1, 10))
                 LOGGER.error("Loss is %f" % loss.item())
                 loss.backward()
+                logits = ranking_loss.return_logits(img_vec[0].view(1, 10),
+                                                    txt_vec[0].view(1, 10),
+                                                    txt_vec[1].view(1, 10))
+                LOGGER.info("before============")
+                print(logits)
 
                 optimizer.step()
-                optimizer.zero_grad()
-                queue = txt_vec.clone()
-                queue = queue.detach()
 
             with torch.set_grad_enabled(False):
-                LOGGER.info("============= logits with torch no grad")
-                img_vec = teacher_net.forward(img_feature)
-                txt_vec = teacher_net.forward(txt_feature)
-                logits = ranking_loss.return_logits(img_vec, txt_vec, queue)
-                print("logits with queue", logits)
-                print(torch.argmax(logits, dim=1))
-
-                print("logits with queue 2")
-                preds = ranking_loss.predict(img_vec, queue)
-                print(preds)
-
-                print("logits with neg from batch")
-                preds = ranking_loss.predict(txt_vec, img_vec)
-                print(preds)
-
-                print("img", img_vec[0, :10])
-                print("txt", txt_vec[0, :10])
-                print()
-            break
+                logits = ranking_loss.return_logits(img_vec[0].view(1, 10),
+                                                    txt_vec[0].view(1, 10),
+                                                    txt_vec[1].view(1, 10))
+                LOGGER.info("after============")
+                print(logits)
+            print()
 
 
 if __name__ == '__main__':

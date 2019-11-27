@@ -13,9 +13,9 @@ import sys
 
 from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 
-val_img = torch.load("cached_data/val_img")
-val_cap = torch.load("cached_data/val_cap")
-val_mask = torch.load("cached_data/val_mask")
+val_img = torch.load("cached_data/train_img")
+val_cap = torch.load("cached_data/train_cap")
+val_mask = torch.load("cached_data/train_mask")
 
 print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
 

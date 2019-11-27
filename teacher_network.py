@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+import torch.optim as optim
 
 
 class TeacherNet(nn.Module):
@@ -71,7 +72,7 @@ class ContrastiveLoss(nn.Module):
             for j in range(0, batch_size):
                 embedding_loss[i][j] = torch.matmul(x_reprets[i], y_reprets[j])
                 # print(x_reprets[i], y_reprets[j], torch.matmul(x_reprets[i], y_reprets[j]))
-        print(embedding_loss)
+        # print(embedding_loss)
         preds = torch.argmax(embedding_loss, dim=1)  # return the index of minimal of each row
         return preds
 
@@ -93,7 +94,7 @@ class ContrastiveLoss(nn.Module):
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         labels = torch.zeros(N, dtype=torch.long, device=self.dev)
         loss = self.loss_fn(logits/self.temp, labels)
-        print("loss", loss)
+        # print("loss", loss)
         # print("inside forward", logits.size())
         return loss
 
@@ -121,12 +122,30 @@ class ContrastiveLoss(nn.Module):
 
 
 if __name__ == "__main__":
-    u1 = torch.rand((4, 3))
-    u2 = torch.rand((4, 3))
-    du = torch.rand((6, 3))
-    loss = ContrastiveLoss(1, "cpu")
+    # u1 = torch.rand((4, 3))
+    # u2 = torch.rand((4, 3))
+    # du = torch.rand((6, 3))
+    # loss = ContrastiveLoss(1, "cpu")
+    #
+    # print(u1)
+    # print(u2)
+    # loss.predict(u1, u2)
+    # print(loss.return_logits(u1, u2, du))
 
-    print(u1)
-    print(u2)
-    loss.predict(u1, u2)
-    print(loss.return_logits(u1, u2, du))
+    optim.Adam
+    crossent = torch.nn.CrossEntropyLoss()
+    inp = torch.rand((4, 3), requires_grad=True)
+    print(inp)
+    print()
+    label = torch.zeros(4, dtype=torch.long)
+    for i in range(5):
+        out = crossent(inp, label)
+        print("loss is", out.item())
+        out.backward()
+        with torch.no_grad():
+            inp -= inp.grad
+            out = crossent(inp, label)
+            print("loss is", out.item())
+            print(inp)
+            inp.grad.zero_()
+            print()

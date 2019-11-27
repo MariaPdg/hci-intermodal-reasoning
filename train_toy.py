@@ -62,24 +62,14 @@ def main():
 
     # optimizer
     params_to_update_share = []
-    params_to_update_img = []
-    params_to_update_txt = []
 
     for name, param in teacher_net.named_parameters():
         if param.requires_grad is True:
             params_to_update_share.append(param)
 
-    for name, param in vision_net.named_parameters():
-        if param.requires_grad is True:
-            params_to_update_img.append(param)
-
-    for name, param in text_net.named_parameters():
-        if param.requires_grad is True:
-            params_to_update_txt.append(param)
-
     params_to_update = list(params_to_update_share)
 
-    optimizer = optim.Adam(params_to_update, lr=0.00001)
+    optimizer = optim.Adam(params_to_update, lr=0.0001)
 
     print("Start to train")
     start_time = time.time()
@@ -106,6 +96,7 @@ def main():
             with torch.set_grad_enabled(True):
                 img_vec = teacher_net.forward(img_feature)
                 txt_vec = teacher_net.forward(txt_feature)
+                txt_vec = txt_vec.detach()
 
                 if queue is None:
                     queue = txt_vec.clone()
@@ -114,13 +105,13 @@ def main():
 
                 loss = ranking_loss(img_vec, txt_vec, queue)
                 try:
+                    optimizer.zero_grad()
                     loss.backward()
                 except AttributeError:
                     print("step %d faulty" % step)
                     continue
 
                 optimizer.step()
-                optimizer.zero_grad()
                 queue = txt_vec.clone()
                 queue = queue.detach()
 
@@ -140,7 +131,7 @@ def main():
                 "          train acc = %f (%d/%d)" % (
                     float(running_corrects / total_samples), running_corrects, total_samples))
 
-        train_losses.append(running_loss)
+        train_losses.append(running_loss/step)
         train_accs.append(float(running_corrects / total_samples))
 
         """
@@ -170,7 +161,7 @@ def main():
             LOGGER.info("Val loss = %f" % (running_loss/step))
             LOGGER.info(
                 "Val acc = %f (%d/%d)" % (float(running_corrects / total_samples), running_corrects, total_samples))
-        val_losses.append(running_loss)
+        val_losses.append(running_loss/step)
         val_accs.append(float(running_corrects / total_samples))
 
     LOGGER.info("Training done in %f mins" % ((time.time() - start_time) / 60))
