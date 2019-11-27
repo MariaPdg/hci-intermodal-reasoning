@@ -132,7 +132,6 @@ if __name__ == "__main__":
     # loss.predict(u1, u2)
     # print(loss.return_logits(u1, u2, du))
 
-    optim.Adam
     crossent = torch.nn.CrossEntropyLoss()
     inp = torch.rand((4, 3), requires_grad=True)
     print(inp)
