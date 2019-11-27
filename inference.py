@@ -11,7 +11,7 @@ import time
 import sys
 
 
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 
 
 
@@ -30,13 +30,12 @@ valid_data = TensorDataset(val_img, val_cap, val_mask)
 valid_sampler = SequentialSampler(valid_data)
 valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE * 2, num_workers=2)
 
-device = "cuda:1"
+device = "cuda:0"
 text_net = text_network.TextNet(device)
 vision_net = vision_network.VisionNet(device)
 teacher_net = teacher_network.TeacherNet()
-ranking_loss = teacher_network.RankingLossFunc(DELTA)
+ranking_loss = teacher_network.ContrastiveLoss(DELTA, device)
 teacher_net.to(device)
-ranking_loss.to(device)
 
 # optimizer
 params_to_update_share = []
@@ -47,7 +46,7 @@ params_to_update_txt = []
 params_to_update = list(params_to_update_share) + list(params_to_update_img) + list(params_to_update_txt)
 optimizer = optim.Adam(params_to_update, lr=0.0001)
 
-teacher_net.load_state_dict(torch.load("models/0.06"))
+teacher_net.load_state_dict(torch.load("models/156-train_modality0"))
 
 start_time = time.time()
 print("Start to evaluate")
@@ -64,13 +63,12 @@ for _ in range(2):
             img_vec = teacher_net.forward(vision_net.forward(img))
             txt_vec = teacher_net.forward(text_net.forward(cap, mask))
     
-            loss = ranking_loss(img_vec, txt_vec)
-            preds = teacher_net.predict(img_vec, txt_vec)
+            preds = ranking_loss.predict(img_vec, txt_vec)
 
-        running_loss += loss.item() * BATCH_SIZE
+        print(preds)
         running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
         total_samples += len(preds)
+        break
         
-    LOGGER.info("Val loss = %f" % running_loss)
     LOGGER.info("Val acc = %f (%d/%d)" % (float(running_corrects/total_samples), running_corrects, total_samples))
 LOGGER.info("Evaluation done in %f mins" % ((time.time()-start_time)/60))

@@ -38,19 +38,19 @@ def main():
     print("Loaded train data", train_img.size(), train_cap.size(), train_mask.size())
     print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
 
-    DELTA = 0.07
+    DELTA = 10
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
     train_modality_net = bool(MY_ARGS.train_modality_net)
     device = "cuda:0"
     verbose = bool(MY_ARGS.verbose)
-    LOSS_FUNCTIONS = {0: teacher_network.RankingLossFunc(DELTA), 1: teacher_network.ContrastiveLoss(DELTA, device)}
+    LOSS_FUNCTIONS = {0: teacher_network.RankingLossFunc(DELTA), 1: teacher_network.ContrastiveLoss(10, device)}
 
     train_data = TensorDataset(train_img, train_cap, train_mask)
     train_sampler = RandomSampler(train_data)
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
     valid_data = TensorDataset(val_img, val_cap, val_mask)
-    valid_sampler = SequentialSampler(valid_data)
+    valid_sampler = RandomSampler(valid_data)
     valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE, num_workers=2)
 
     text_net = text_network.TextNet(device)
@@ -77,9 +77,9 @@ def main():
         if param.requires_grad is True:
             params_to_update_txt.append(param)
 
-    params_to_update = list(params_to_update_share) + list(params_to_update_img) + list(params_to_update_txt)
+    params_to_update = list(params_to_update_share)
 
-    optimizer = optim.Adam(params_to_update, lr=0.01)
+    optimizer = optim.Adam(params_to_update, lr=0.00001)
 
     print("Start to train")
     start_time = time.time()
@@ -116,6 +116,7 @@ def main():
                 try:
                     loss.backward()
                 except AttributeError:
+                    print("step %d faulty" % step)
                     continue
 
                 optimizer.step()
@@ -126,15 +127,18 @@ def main():
             with torch.set_grad_enabled(True):
                 preds = ranking_loss.predict(img_vec, txt_vec)
 
-            running_loss += loss.item() * BATCH_SIZE
+            try:
+                running_loss += loss.item()
+            except AttributeError:
+                pass
             running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
             total_samples += len(preds)
 
         if verbose:
-            LOGGER.info("Epoch %d: train loss = %f" % (epoch, running_loss))
+            LOGGER.info("Epoch %d: train loss = %f" % (epoch, running_loss/step))
             LOGGER.info(
                 "          train acc = %f (%d/%d)" % (
-                float(running_corrects / total_samples), running_corrects, total_samples))
+                    float(running_corrects / total_samples), running_corrects, total_samples))
 
         train_losses.append(running_loss)
         train_accs.append(float(running_corrects / total_samples))
@@ -158,12 +162,12 @@ def main():
 
                 queue = txt_vec.clone()
 
-            running_loss += loss.item() * BATCH_SIZE
+            running_loss += loss.item()
             running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
             total_samples += len(preds)
 
         if verbose or epoch == NB_EPOCHS - 1:
-            LOGGER.info("Val loss = %f" % running_loss)
+            LOGGER.info("Val loss = %f" % (running_loss/step))
             LOGGER.info(
                 "Val acc = %f (%d/%d)" % (float(running_corrects / total_samples), running_corrects, total_samples))
         val_losses.append(running_loss)
@@ -171,7 +175,7 @@ def main():
 
     LOGGER.info("Training done in %f mins" % ((time.time() - start_time) / 60))
 
-    model_name = "%.2f-train_modality%d" % (float(running_corrects / total_samples), train_modality_net)
+    model_name = "%d-train_modality%d" % (running_corrects, train_modality_net)
     torch.save(teacher_net.state_dict(), "models/%s" % model_name)
     print(train_losses)
     print(train_accs)

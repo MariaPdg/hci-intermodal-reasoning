@@ -45,30 +45,44 @@ class RankingLossFunc(nn.Module):
         return preds
 
 
+def norm(vec):
+    mean_vec = torch.mean(vec, dim=1)
+    std_vec = torch.std(vec, dim=1)
+    for i in range(vec.size(0)):
+        vec[i] -= mean_vec[i]
+        vec[i] /= std_vec[i]
+    return vec
+
+
 class ContrastiveLoss(nn.Module):
     def __init__(self, temp, dev):
         super(ContrastiveLoss, self).__init__()
-        self.temp = temp
+        self.temp = 100
         self.dev = dev
-
-    def norm(self, vec):
-        mean_vec = torch.mean(vec, dim=1)
-        std_vec = torch.std(vec, dim=1)
-        for i in range(vec.size(0)):
-            vec[i] -= mean_vec[i]
-            vec[i] /= std_vec[i]
-        return vec
+        self.loss_fn = torch.nn.CrossEntropyLoss()
 
     def predict(self, x_reprets, y_reprets):
         batch_size = x_reprets.shape[0]
-        x_reprets = self.norm(x_reprets)
-        y_reprets = self.norm(y_reprets)
+        vec_size = x_reprets.shape[1]
+        # x_reprets = norm(x_reprets)
+        # y_reprets = norm(y_reprets)
         embedding_loss = torch.ones(batch_size, batch_size)
         for i in range(0, batch_size):
             for j in range(0, batch_size):
                 embedding_loss[i][j] = torch.matmul(x_reprets[i], y_reprets[j])
-        preds = torch.argmin(embedding_loss, dim=1)  # return the index of minimal of each row
+                # print(x_reprets[i], y_reprets[j], torch.matmul(x_reprets[i], y_reprets[j]))
+        print(embedding_loss)
+        preds = torch.argmax(embedding_loss, dim=1)  # return the index of minimal of each row
         return preds
+
+    def return_logits(self, q, k, queue):
+        N = q.size(0)
+        C = q.size(1)
+        K = queue.size(0)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        l_neg = torch.mm(q.view(N, C), queue.view(C, K))
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        return logits
 
     def forward(self, q, k, queue):
         N = q.size(0)
@@ -78,7 +92,9 @@ class ContrastiveLoss(nn.Module):
         l_neg = torch.mm(q.view(N, C), queue.view(C, K))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         labels = torch.zeros(N, dtype=torch.long, device=self.dev)
-        loss = F.cross_entropy(logits/self.temp, labels)
+        loss = self.loss_fn(logits/self.temp, labels)
+        print("loss", loss)
+        # print("inside forward", logits.size())
         return loss
 
     def forward3(self, X, Y, queue):
@@ -105,15 +121,12 @@ class ContrastiveLoss(nn.Module):
 
 
 if __name__ == "__main__":
-    u1 = torch.rand((3, 4))
-    u2 = torch.rand((3, 4))
-    du = torch.rand((6, 4))
-    du2 = torch.transpose(du, 0, 1)
-    print(du2.size())
+    u1 = torch.rand((4, 3))
+    u2 = torch.rand((4, 3))
+    du = torch.rand((6, 3))
     loss = ContrastiveLoss(1, "cpu")
-    out = loss.forward(u1, u2, du2)
 
-    out = loss.forward3(u1, u2, du)
     print(u1)
-    print(loss.norm(u1))
-    print(loss.norm(loss.norm(u1)))
+    print(u2)
+    loss.predict(u1, u2)
+    print(loss.return_logits(u1, u2, du))
