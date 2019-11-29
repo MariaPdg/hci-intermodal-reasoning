@@ -40,6 +40,7 @@ def main():
     print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
 
     DELTA = 10
+    MOMENT = 0.999
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
     train_modality_net = bool(MY_ARGS.train_modality_net)
@@ -56,7 +57,15 @@ def main():
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
-    teacher_net = torch.nn.Sequential(
+    teacher_net1 = torch.nn.Sequential(
+        torch.nn.Linear(2048, 4096),
+        torch.nn.ReLU(),
+        torch.nn.Linear(4096, 4096),
+        torch.nn.ReLU(),
+        torch.nn.Linear(4096, 10),
+        torch.nn.Softmax(),
+    )
+    teacher_net2 = torch.nn.Sequential(
         torch.nn.Linear(2048, 4096),
         torch.nn.ReLU(),
         torch.nn.Linear(4096, 4096),
@@ -65,11 +74,14 @@ def main():
         torch.nn.Softmax(),
     )
     ranking_loss = LOSS_FUNCTIONS[MY_ARGS.loss_function]
-    teacher_net.to(device)
+    teacher_net1.to(device)
+    teacher_net2.to(device)
     ranking_loss.to(device)
 
+    param_names = teacher_net1.state_dict().keys()
+
     # optimizer
-    optimizer = optim.Adam(teacher_net.parameters(), lr=0.01)
+    optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
 
     print("Start to train")
     start_time = time.time()
@@ -77,7 +89,9 @@ def main():
     train_accs = []
     val_losses = []
     val_accs = []
-    NEG_SAMPLES = queue_lib.Queue()
+    NEG_SAMPLES = teacher_network.CustomedQueue()
+    QUEUE_SIZE = 64
+
 
     for epoch in range(NB_EPOCHS):
         """
@@ -89,43 +103,42 @@ def main():
 
         for step, batch in enumerate(train_dataloader):
             img, cap, mask = tuple(t.to(device) for t in batch)
-            NEG_SAMPLES.put((img, cap, mask))
 
             if NEG_SAMPLES.empty():
+                with torch.set_grad_enabled(False):
+                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                    NEG_SAMPLES.enqueue(txt_vec)
                 continue
+
             else:
-                _, neg_cap, neg_mask = NEG_SAMPLES.get()
                 with torch.set_grad_enabled(False):
                     img_feature = vision_net.forward(img)
                     txt_feature = text_net.forward(cap, mask)
-                    neg_txt_feature = text_net.forward(neg_cap, neg_mask)
 
                 with torch.set_grad_enabled(True):
-                    img_vec = teacher_net.forward(img_feature)
-                    txt_vec = teacher_net.forward(txt_feature)
-                    neg_txt_vec = teacher_net.forward(neg_txt_feature)
+                    img_vec = teacher_net1.forward(img_feature)
+                    txt_vec = teacher_net2.forward(txt_feature)
+                    neg_txt_vec = NEG_SAMPLES.get_tensor()
+                    neg_txt_vec = neg_txt_vec.detach()
 
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
-                    try:
-                        loss.backward()
-                    except AttributeError:
-                        print("step %d faulty" % step)
-                        continue
-
+                    loss.backward()
                     optimizer.step()
                     optimizer.zero_grad()
 
                 with torch.set_grad_enabled(False):
-                    img_vec = teacher_net.forward(img_feature)
-                    txt_vec = teacher_net.forward(txt_feature)
                     preds = ranking_loss.predict(img_vec, txt_vec)
 
-                try:
-                    running_loss += loss.item()
-                except AttributeError:
-                    pass
+                for key in param_names:
+                    teacher_net2.state_dict()[key] = teacher_net2.state_dict()[key] * MOMENT + \
+                                                     (1 - MOMENT) * teacher_net1.state_dict()[key]
+
+                running_loss += loss.item()
                 running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
                 total_samples += len(preds)
+
+            if NEG_SAMPLES.size >= QUEUE_SIZE:
+                NEG_SAMPLES.dequeue(32)
 
         if verbose:
             LOGGER.info("Epoch %d: train loss = %f" % (epoch, running_loss/step))
@@ -136,44 +149,6 @@ def main():
         train_losses.append(running_loss/step)
         train_accs.append(float(running_corrects / total_samples))
 
-        """
-        Validating
-        """
-        running_loss = 0.0
-        running_corrects = 0.0
-        total_samples = 0
-
-        for step, batch in enumerate(valid_dataloader):
-            img, cap, mask = tuple(t.to(device) for t in batch)
-            NEG_SAMPLES.put((img, cap, mask))
-
-            if NEG_SAMPLES.empty():
-                continue
-            else:
-                _, neg_cap, neg_mask = NEG_SAMPLES.get()
-                with torch.set_grad_enabled(False):
-                    img_vec = teacher_net.forward(vision_net.forward(img))
-                    txt_vec = teacher_net.forward(text_net.forward(cap, mask))
-                    neg_txt_vec = teacher_net.forward(text_net.forward(neg_cap, neg_mask))
-
-                    loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
-                    preds = ranking_loss.predict(img_vec, txt_vec)
-
-                running_loss += loss.item()
-                running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
-                total_samples += len(preds)
-
-        if verbose or epoch == NB_EPOCHS - 1:
-            LOGGER.info("Val loss = %f" % (running_loss/step))
-            LOGGER.info(
-                "Val acc = %f (%d/%d)" % (float(running_corrects / total_samples), running_corrects, total_samples))
-        val_losses.append(running_loss/step)
-        val_accs.append(float(running_corrects / total_samples))
-
-    LOGGER.info("Training done in %f mins" % ((time.time() - start_time) / 60))
-
-    model_name = "%d-train_modality%d" % (running_corrects, train_modality_net)
-    torch.save(teacher_net.state_dict(), "models/%s" % model_name)
     print(train_losses)
     print(train_accs)
     print(val_losses)

@@ -121,7 +121,40 @@ class ContrastiveLoss(nn.Module):
         return loss/num_of_samples
 
 
+class CustomedQueue:
+    def __init__(self):
+        self.neg_keys = []
+        self.size = 0
+
+    def empty(self):
+        return self.size == 0
+
+    def enqueue(self, new_tensor):
+        if self.size == 0:
+            self.neg_keys = new_tensor
+        else:
+            self.neg_keys = torch.cat([self.neg_keys, new_tensor])
+        self.size += new_tensor.size(0)
+
+    def dequeue(self, howmany=1):
+        if self.size > 0:
+            self.size -= howmany
+            self.neg_keys = self.neg_keys[howmany:]
+
+    def get_tensor(self):
+        return self.neg_keys.clone()
+
+
 if __name__ == "__main__":
+    q = CustomedQueue()
+    for i in range(3):
+        if q.size >= 3:
+            q.dequeue()
+        u1 = torch.rand((4, 3))
+        q.enqueue(u1)
+        print(q.size, q.neg_keys.size())
+        print(q.neg_keys)
+
     # u1 = torch.rand((4, 3))
     # u2 = torch.rand((4, 3))
     # du = torch.rand((6, 3))
@@ -132,19 +165,19 @@ if __name__ == "__main__":
     # loss.predict(u1, u2)
     # print(loss.return_logits(u1, u2, du))
 
-    crossent = torch.nn.CrossEntropyLoss()
-    inp = torch.rand((4, 3), requires_grad=True)
-    print(inp)
-    print()
-    label = torch.zeros(4, dtype=torch.long)
-    for i in range(5):
-        out = crossent(inp, label)
-        print("loss is", out.item())
-        out.backward()
-        with torch.no_grad():
-            inp -= inp.grad
-            out = crossent(inp, label)
-            print("loss is", out.item())
-            print(inp)
-            inp.grad.zero_()
-            print()
+    # crossent = torch.nn.CrossEntropyLoss()
+    # inp = torch.rand((4, 3), requires_grad=True)
+    # print(inp)
+    # print()
+    # label = torch.zeros(4, dtype=torch.long)
+    # for i in range(5):
+    #     out = crossent(inp, label)
+    #     print("loss is", out.item())
+    #     out.backward()
+    #     with torch.no_grad():
+    #         inp -= inp.grad
+    #         out = crossent(inp, label)
+    #         print("loss is", out.item())
+    #         print(inp)
+    #         inp.grad.zero_()
+    #         print()
