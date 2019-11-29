@@ -103,7 +103,6 @@ def main():
 
         for step, batch in enumerate(train_dataloader):
             img, cap, mask = tuple(t.to(device) for t in batch)
-
             if NEG_SAMPLES.empty():
                 with torch.set_grad_enabled(False):
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
@@ -119,7 +118,7 @@ def main():
                     img_vec = teacher_net1.forward(img_feature)
                     txt_vec = teacher_net2.forward(txt_feature)
                     neg_txt_vec = NEG_SAMPLES.get_tensor()
-                    neg_txt_vec = neg_txt_vec.detach()
+                    txt_vec = txt_vec.detach()
 
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                     loss.backward()
@@ -127,7 +126,10 @@ def main():
                     optimizer.zero_grad()
 
                 with torch.set_grad_enabled(False):
+                    img_vec = teacher_net1.forward(img_feature)
+                    txt_vec = teacher_net2.forward(txt_feature)
                     preds = ranking_loss.predict(img_vec, txt_vec)
+                    NEG_SAMPLES.enqueue(txt_vec)
 
                 for key in param_names:
                     teacher_net2.state_dict()[key] = teacher_net2.state_dict()[key] * MOMENT + \
@@ -138,7 +140,7 @@ def main():
                 total_samples += len(preds)
 
             if NEG_SAMPLES.size >= QUEUE_SIZE:
-                NEG_SAMPLES.dequeue(32)
+                NEG_SAMPLES.dequeue(16)
 
         if verbose:
             LOGGER.info("Epoch %d: train loss = %f" % (epoch, running_loss/step))
