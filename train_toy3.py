@@ -76,11 +76,11 @@ def main():
                 NEG_SAMPLES.put((img, cap, mask))
                 continue
             else:
-                neg_img, neg_cap, neg_mask = NEG_SAMPLES.get()
+                _, neg_cap, neg_mask = NEG_SAMPLES.get()
                 with torch.set_grad_enabled(False):
-                    img_feature = vision_net.forward(neg_img)
-                    txt_feature = text_net.forward(neg_cap, neg_mask)
-                    neg_txt_feature = text_net.forward(cap, mask)
+                    img_feature = vision_net.forward(img)
+                    txt_feature = text_net.forward(cap, mask)
+                    neg_txt_feature = text_net.forward(neg_cap, neg_mask)
 
                 with torch.set_grad_enabled(True):
                     img_vec = teacher_net.forward(img_feature)

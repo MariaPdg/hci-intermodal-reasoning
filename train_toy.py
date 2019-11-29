@@ -7,6 +7,7 @@ import torch.optim as optim
 import time
 import argparse
 import sys
+import queue as queue_lib
 
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from knockknock import slack_sender
@@ -19,7 +20,7 @@ def main():
     PARSER.add_argument("--batchsize", help="batch size", default=32, type=int)
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
-    PARSER.add_argument("--verbose", help="print information", default=0, type=int)
+    PARSER.add_argument("--verbose", help="print information", default=1, type=int)
 
     MY_ARGS = PARSER.parse_args()
 
@@ -55,21 +56,20 @@ def main():
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
-    teacher_net = teacher_network.TeacherNet()
+    teacher_net = torch.nn.Sequential(
+        torch.nn.Linear(2048, 4096),
+        torch.nn.ReLU(),
+        torch.nn.Linear(4096, 4096),
+        torch.nn.ReLU(),
+        torch.nn.Linear(4096, 10),
+        torch.nn.Softmax(),
+    )
     ranking_loss = LOSS_FUNCTIONS[MY_ARGS.loss_function]
     teacher_net.to(device)
     ranking_loss.to(device)
 
     # optimizer
-    params_to_update_share = []
-
-    for name, param in teacher_net.named_parameters():
-        if param.requires_grad is True:
-            params_to_update_share.append(param)
-
-    params_to_update = list(params_to_update_share)
-
-    optimizer = optim.Adam(params_to_update, lr=0.0001)
+    optimizer = optim.Adam(teacher_net.parameters(), lr=0.01)
 
     print("Start to train")
     start_time = time.time()
@@ -77,7 +77,8 @@ def main():
     train_accs = []
     val_losses = []
     val_accs = []
-    queue = None
+    NEG_SAMPLES = queue_lib.Queue()
+
     for epoch in range(NB_EPOCHS):
         """
         Training
@@ -88,42 +89,41 @@ def main():
 
         for step, batch in enumerate(train_dataloader):
             img, cap, mask = tuple(t.to(device) for t in batch)
+            NEG_SAMPLES.put((img, cap, mask))
 
-            with torch.set_grad_enabled(train_modality_net):
-                img_feature = vision_net.forward(img)
-                txt_feature = text_net.forward(cap, mask)
+            if NEG_SAMPLES.empty():
+                continue
+            else:
+                _, neg_cap, neg_mask = NEG_SAMPLES.get()
+                with torch.set_grad_enabled(False):
+                    img_feature = vision_net.forward(img)
+                    txt_feature = text_net.forward(cap, mask)
+                    neg_txt_feature = text_net.forward(neg_cap, neg_mask)
 
-            with torch.set_grad_enabled(True):
-                img_vec = teacher_net.forward(img_feature)
-                txt_vec = teacher_net.forward(txt_feature)
-                txt_vec = txt_vec.detach()
+                with torch.set_grad_enabled(True):
+                    img_vec = teacher_net.forward(img_feature)
+                    txt_vec = teacher_net.forward(txt_feature)
+                    neg_txt_vec = teacher_net.forward(neg_txt_feature)
 
-                if queue is None:
-                    queue = txt_vec.clone()
-                    queue = queue.detach()
-                    continue
+                    loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
+                    try:
+                        loss.backward()
+                    except AttributeError:
+                        print("step %d faulty" % step)
+                        continue
 
-                loss = ranking_loss(img_vec, txt_vec, queue)
-                try:
+                    optimizer.step()
                     optimizer.zero_grad()
-                    loss.backward()
+
+                with torch.set_grad_enabled(False):
+                    preds = ranking_loss.predict(img_vec, txt_vec)
+
+                try:
+                    running_loss += loss.item()
                 except AttributeError:
-                    print("step %d faulty" % step)
-                    continue
-
-                optimizer.step()
-                queue = txt_vec.clone()
-                queue = queue.detach()
-
-            with torch.set_grad_enabled(True):
-                preds = ranking_loss.predict(img_vec, txt_vec)
-
-            try:
-                running_loss += loss.item()
-            except AttributeError:
-                pass
-            running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
-            total_samples += len(preds)
+                    pass
+                running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
+                total_samples += len(preds)
 
         if verbose:
             LOGGER.info("Epoch %d: train loss = %f" % (epoch, running_loss/step))
@@ -143,19 +143,23 @@ def main():
 
         for step, batch in enumerate(valid_dataloader):
             img, cap, mask = tuple(t.to(device) for t in batch)
+            NEG_SAMPLES.put((img, cap, mask))
 
-            with torch.set_grad_enabled(False):
-                img_vec = teacher_net.forward(vision_net.forward(img))
-                txt_vec = teacher_net.forward(text_net.forward(cap, mask))
+            if NEG_SAMPLES.empty():
+                continue
+            else:
+                _, neg_cap, neg_mask = NEG_SAMPLES.get()
+                with torch.set_grad_enabled(False):
+                    img_vec = teacher_net.forward(vision_net.forward(img))
+                    txt_vec = teacher_net.forward(text_net.forward(cap, mask))
+                    neg_txt_vec = teacher_net.forward(text_net.forward(neg_cap, neg_mask))
 
-                loss = ranking_loss(img_vec, txt_vec, queue)
-                preds = ranking_loss.predict(img_vec, txt_vec)
+                    loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
+                    preds = ranking_loss.predict(img_vec, txt_vec)
 
-                queue = txt_vec.clone()
-
-            running_loss += loss.item()
-            running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
-            total_samples += len(preds)
+                running_loss += loss.item()
+                running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
+                total_samples += len(preds)
 
         if verbose or epoch == NB_EPOCHS - 1:
             LOGGER.info("Val loss = %f" % (running_loss/step))
