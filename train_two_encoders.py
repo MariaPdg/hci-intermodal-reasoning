@@ -6,6 +6,7 @@ import vision_network
 import torch.optim as optim
 import time
 import argparse
+import numpy as np
 import sys
 import queue as queue_lib
 
@@ -16,7 +17,7 @@ from knockknock import slack_sender
 def main():
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=10, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=100, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=32, type=int)
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
@@ -39,14 +40,10 @@ def main():
     print("Loaded train data", train_img.size(), train_cap.size(), train_mask.size())
     print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
 
-    DELTA = 10
-    MOMENT = 0.999
+    MOMENT = 0.9
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    train_modality_net = bool(MY_ARGS.train_modality_net)
     device = "cuda:0"
-    verbose = bool(MY_ARGS.verbose)
-    LOSS_FUNCTIONS = {0: teacher_network.RankingLossFunc(DELTA), 1: teacher_network.ContrastiveLoss(10, device)}
 
     train_data = TensorDataset(train_img, train_cap, train_mask)
     train_sampler = RandomSampler(train_data)
@@ -57,23 +54,9 @@ def main():
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
-    teacher_net1 = torch.nn.Sequential(
-        torch.nn.Linear(2048, 4096),
-        torch.nn.ReLU(),
-        torch.nn.Linear(4096, 4096),
-        torch.nn.ReLU(),
-        torch.nn.Linear(4096, 10),
-        torch.nn.Softmax(),
-    )
-    teacher_net2 = torch.nn.Sequential(
-        torch.nn.Linear(2048, 4096),
-        torch.nn.ReLU(),
-        torch.nn.Linear(4096, 4096),
-        torch.nn.ReLU(),
-        torch.nn.Linear(4096, 10),
-        torch.nn.Softmax(),
-    )
-    ranking_loss = LOSS_FUNCTIONS[MY_ARGS.loss_function]
+    teacher_net1 = teacher_network.TeacherNet()
+    teacher_net2 = teacher_network.TeacherNet()
+    ranking_loss = teacher_network.ContrastiveLoss(1, device)
     teacher_net1.to(device)
     teacher_net2.to(device)
     ranking_loss.to(device)
@@ -81,7 +64,7 @@ def main():
     param_names = teacher_net1.state_dict().keys()
 
     # optimizer
-    optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
+    optimizer = optim.Adam(teacher_net1.parameters(), lr=3e-5)
 
     print("Start to train")
     start_time = time.time()
@@ -92,12 +75,11 @@ def main():
     NEG_SAMPLES = teacher_network.CustomedQueue()
     QUEUE_SIZE = 64
 
-
     for epoch in range(NB_EPOCHS):
         """
         Training
         """
-        running_loss = 0.0
+        running_loss = []
         running_corrects = 0.0
         total_samples = 0
 
@@ -118,12 +100,23 @@ def main():
                     img_vec = teacher_net1.forward(img_feature)
                     txt_vec = teacher_net2.forward(txt_feature)
                     neg_txt_vec = NEG_SAMPLES.get_tensor()
+                    print(neg_txt_vec.size())
+                    neg_txt_vec = neg_txt_vec.detach()
                     txt_vec = txt_vec.detach()
 
+                    # print("img", img_vec)
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
+                    running_loss.append(loss.item())
                     loss.backward()
+
+                    torch.nn.utils.clip_grad_norm_(parameters=teacher_net1.parameters(),
+                                                   max_norm=1.0)
+                    # for param in teacher_net1.parameters():
+                    #     print(param.grad.data.sum())
+
                     optimizer.step()
                     optimizer.zero_grad()
+                    # print()
 
                 with torch.set_grad_enabled(False):
                     img_vec = teacher_net1.forward(img_feature)
@@ -135,28 +128,29 @@ def main():
                     teacher_net2.state_dict()[key] = teacher_net2.state_dict()[key] * MOMENT + \
                                                      (1 - MOMENT) * teacher_net1.state_dict()[key]
 
-                running_loss += loss.item()
                 running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
                 total_samples += len(preds)
 
             if NEG_SAMPLES.size >= QUEUE_SIZE:
-                NEG_SAMPLES.dequeue(16)
+                NEG_SAMPLES.dequeue(BATCH_SIZE)
 
-        if verbose:
-            LOGGER.info("Epoch %d: train loss = %f" % (epoch, running_loss/step))
-            LOGGER.info(
-                "          train acc = %f (%d/%d)" % (
-                    float(running_corrects / total_samples), running_corrects, total_samples))
+        LOGGER.info("Epoch %d: train loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
+                                                                  np.max(running_loss),
+                                                                  np.min(running_loss)))
+        LOGGER.info(
+            "          train acc = %f (%d/%d)" % (
+                float(running_corrects / total_samples), running_corrects, total_samples))
 
-        train_losses.append(running_loss/step)
+        train_losses.append(np.average(running_loss))
         train_accs.append(float(running_corrects / total_samples))
+
+    model_name = "%d" % running_corrects
+    torch.save(teacher_net1.state_dict(), "models/enc1-%s-norm" % model_name)
+    torch.save(teacher_net2.state_dict(), "models/enc2-%s-norm" % model_name)
 
     print(train_losses)
     print(train_accs)
-    print(val_losses)
-    print(val_accs)
     print()
-    return val_accs[-1], MY_ARGS
 
 
 if __name__ == '__main__':

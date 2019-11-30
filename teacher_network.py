@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-import torch.optim as optim
 
 
 class TeacherNet(nn.Module):
@@ -9,12 +8,13 @@ class TeacherNet(nn.Module):
         super(TeacherNet, self).__init__()
         self.linear1 = nn.Linear(in_features=2048, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
-        self.linear3 = nn.Linear(in_features=4096, out_features=10)
+        self.linear3 = nn.Linear(in_features=4096, out_features=100)
 
     def forward(self, inputs):
         out = F.relu(self.linear1(inputs))
         out = F.relu(self.linear2(out))
         out = F.relu(self.linear3(out))
+        out = F.normalize(out, p=2, dim=1)
         return out
 
 
@@ -79,18 +79,16 @@ class ContrastiveLoss(nn.Module):
     def return_logits(self, q, k, queue):
         N = q.size(0)
         C = q.size(1)
-        K = queue.size(0)
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
-        l_neg = torch.mm(q.view(N, C), queue.view(C, K))
+        l_neg = torch.mm(q.view(N, C), queue)
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         return logits
 
     def forward(self, q, k, queue):
         N = q.size(0)
         C = q.size(1)
-        K = queue.size(0)
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
-        l_neg = torch.mm(q.view(N, C), queue.view(C, K))
+        l_neg = torch.mm(q.view(N, C), queue)
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         labels = torch.zeros(N, dtype=torch.long, device=self.dev)
         loss = self.loss_fn(logits/self.temp, labels)
@@ -142,7 +140,7 @@ class CustomedQueue:
             self.neg_keys = self.neg_keys[howmany:]
 
     def get_tensor(self):
-        return self.neg_keys.clone()
+        return torch.transpose(self.neg_keys, 0, 1)
 
 
 if __name__ == "__main__":
