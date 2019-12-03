@@ -82,7 +82,7 @@ class ContrastiveLoss(nn.Module):
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
         l_neg = torch.mm(q.view(N, C), queue)
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
-        return logits
+        return logits, torch.argmax(logits, dim=1)
 
     def forward(self, q, k, queue):
         N = q.size(0)

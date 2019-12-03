@@ -10,9 +10,9 @@ import sys
 
 from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 
-val_img = torch.load("cached_data/val_img")
-val_cap = torch.load("cached_data/val_cap")
-val_mask = torch.load("cached_data/val_mask")
+val_img = torch.load("cached_data/train_img")
+val_cap = torch.load("cached_data/train_cap")
+val_mask = torch.load("cached_data/train_mask")
 
 print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
 
@@ -25,9 +25,10 @@ valid_data = TensorDataset(val_img, val_cap, val_mask)
 valid_sampler = SequentialSampler(valid_data)
 valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE * 2, num_workers=2)
 
-device = "cuda:0"
+device = "cuda:1"
 text_net = text_network.TextNet(device)
 vision_net = vision_network.VisionNet(device)
+
 teacher_net1 = teacher_network.TeacherNet()
 teacher_net2 = teacher_network.TeacherNet()
 ranking_loss = teacher_network.ContrastiveLoss(DELTA, device)
@@ -38,6 +39,11 @@ teacher_net2.to(device)
 teacher_net1.load_state_dict(torch.load("models/enc1-8296-norm"))
 teacher_net2.load_state_dict(torch.load("models/enc2-8296-norm"))
 
+text_net.model.eval()
+vision_net.model.eval()
+teacher_net1.eval()
+teacher_net2.eval()
+ranking_loss.eval()
 
 print("Start to evaluate")
 for nb_neg_samples in [8, 16, 32, 64, 128, 256]:
@@ -87,7 +93,6 @@ for nb_neg_samples in [8, 16, 32, 64, 128, 256]:
         pred = np.argmax(logits)
         if pred == 0:
             running_corrects += 1
-
 
     LOGGER.info("Val acc = %f (%d/%d) attacking vectors = %d" % (float(running_corrects / total_samples), running_corrects, total_samples, nb_neg_samples))
     LOGGER.info("Evaluation done in %f mins" % ((time.time() - start_time) / 60))

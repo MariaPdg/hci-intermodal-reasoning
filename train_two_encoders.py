@@ -8,16 +8,15 @@ import time
 import argparse
 import numpy as np
 import sys
-import queue as queue_lib
 
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from knockknock import slack_sender
 
 
 def main():
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=100, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=32, type=int)
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
@@ -43,7 +42,7 @@ def main():
     MOMENT = 0.9
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:0"
+    device = "cuda:1"
 
     train_data = TensorDataset(train_img, train_cap, train_mask)
     train_sampler = RandomSampler(train_data)
@@ -61,7 +60,14 @@ def main():
     teacher_net2.to(device)
     ranking_loss.to(device)
 
-    param_names = teacher_net1.state_dict().keys()
+    param_names = teacher_net1.state_dict().keys()  # for updating encoder 2
+
+    # define if train vision and text net
+    text_net.model.eval()
+    vision_net.model.eval()
+    teacher_net1.train()
+    teacher_net2.eval()
+    ranking_loss.train()
 
     # optimizer
     optimizer = optim.Adam(teacher_net1.parameters(), lr=3e-5)
@@ -73,6 +79,7 @@ def main():
     val_losses = []
     val_accs = []
     NEG_SAMPLES = teacher_network.CustomedQueue()
+    VAL_NEG_SAMPLES = teacher_network.CustomedQueue()
     QUEUE_SIZE = 64
 
     for epoch in range(NB_EPOCHS):
@@ -86,48 +93,43 @@ def main():
         for step, batch in enumerate(train_dataloader):
             img, cap, mask = tuple(t.to(device) for t in batch)
             if NEG_SAMPLES.empty():
-                with torch.set_grad_enabled(False):
-                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
-                    NEG_SAMPLES.enqueue(txt_vec)
+                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                NEG_SAMPLES.enqueue(txt_vec)
                 continue
 
             else:
-                with torch.set_grad_enabled(False):
-                    img_feature = vision_net.forward(img)
-                    txt_feature = text_net.forward(cap, mask)
+                img_feature = vision_net.forward(img)
+                txt_feature = text_net.forward(cap, mask)
 
-                with torch.set_grad_enabled(True):
-                    img_vec = teacher_net1.forward(img_feature)
-                    txt_vec = teacher_net2.forward(txt_feature)
-                    neg_txt_vec = NEG_SAMPLES.get_tensor()
-                    neg_txt_vec = neg_txt_vec.detach()
-                    txt_vec = txt_vec.detach()
+                teacher_net1.train()
+                img_vec = teacher_net1.forward(img_feature)
+                txt_vec = teacher_net2.forward(txt_feature)
+                neg_txt_vec = NEG_SAMPLES.get_tensor()
+                neg_txt_vec = neg_txt_vec.detach()
+                txt_vec = txt_vec.detach()
 
-                    # print("img", img_vec)
-                    loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
-                    running_loss.append(loss.item())
-                    loss.backward()
+                loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
+                running_loss.append(loss.item())
+                loss.backward()
 
-                    torch.nn.utils.clip_grad_norm_(parameters=teacher_net1.parameters(),
-                                                   max_norm=1.0)
-                    # for param in teacher_net1.parameters():
-                    #     print(param.grad.data.sum())
+                torch.nn.utils.clip_grad_norm_(parameters=teacher_net1.parameters(), max_norm=1.0)
 
-                    optimizer.step()
-                    optimizer.zero_grad()
-                    # print()
+                # update encoder 1
+                optimizer.step()
+                optimizer.zero_grad()
 
-                with torch.set_grad_enabled(False):
-                    img_vec = teacher_net1.forward(img_feature)
-                    txt_vec = teacher_net2.forward(txt_feature)
-                    preds = ranking_loss.predict(img_vec, txt_vec)
-                    NEG_SAMPLES.enqueue(txt_vec)
-
+                # update encoder 2
                 for key in param_names:
                     teacher_net2.state_dict()[key] = teacher_net2.state_dict()[key] * MOMENT + \
                                                      (1 - MOMENT) * teacher_net1.state_dict()[key]
 
-                running_corrects += sum([(i == preds[i]) for i in range(len(preds))])
+                teacher_net1.eval()
+                img_vec = teacher_net1.forward(img_feature)
+                txt_vec = teacher_net2.forward(txt_feature)
+                _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
+                NEG_SAMPLES.enqueue(txt_vec)
+
+                running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
                 total_samples += len(preds)
 
             if NEG_SAMPLES.size >= QUEUE_SIZE:
@@ -142,6 +144,47 @@ def main():
 
         train_losses.append(np.average(running_loss))
         train_accs.append(float(running_corrects / total_samples))
+
+        """
+        Validating
+        """
+        running_loss = []
+        running_corrects = 0.0
+        total_samples = 0
+        teacher_net1.eval()
+
+        for step, batch in enumerate(valid_dataloader):
+            img, cap, mask = tuple(t.to(device) for t in batch)
+            if VAL_NEG_SAMPLES.empty():
+                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                VAL_NEG_SAMPLES.enqueue(txt_vec)
+                continue
+
+            else:
+                img_vec = teacher_net1.forward(vision_net.forward(img))
+                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
+
+                loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
+                running_loss.append(loss.item())
+                _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
+                VAL_NEG_SAMPLES.enqueue(txt_vec)
+
+                running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
+                total_samples += len(preds)
+
+            if NEG_SAMPLES.size >= QUEUE_SIZE:
+                NEG_SAMPLES.dequeue(BATCH_SIZE)
+
+        LOGGER.info("Epoch %d: val loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
+                                                                np.max(running_loss),
+                                                                np.min(running_loss)))
+        LOGGER.info(
+            "          val acc = %f (%d/%d)" % (
+                float(running_corrects / total_samples), running_corrects, total_samples))
+
+        val_losses.append(np.average(running_loss))
+        val_accs.append(float(running_corrects / total_samples))
 
     model_name = "%d" % running_corrects
     torch.save(teacher_net1.state_dict(), "models/enc1-%s-norm" % model_name)
