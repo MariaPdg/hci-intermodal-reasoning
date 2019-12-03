@@ -38,6 +38,7 @@ class VisionNet:
         return self.model.named_parameters()
 
 
+
 if __name__ == "__main__":
     net = VisionNet()
 
