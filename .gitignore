@@ -1,6 +1,7 @@
 dataset/
 .idea/
 hci/
+original/.vector_cache/
 __pycache__/
 cached_data/
 models/

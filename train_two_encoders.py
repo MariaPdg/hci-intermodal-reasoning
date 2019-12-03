@@ -100,7 +100,6 @@ def main():
                     img_vec = teacher_net1.forward(img_feature)
                     txt_vec = teacher_net2.forward(txt_feature)
                     neg_txt_vec = NEG_SAMPLES.get_tensor()
-                    print(neg_txt_vec.size())
                     neg_txt_vec = neg_txt_vec.detach()
                     txt_vec = txt_vec.detach()
 
