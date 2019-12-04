@@ -12,6 +12,12 @@ import sys
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from knockknock import slack_sender
 
+def momentum_update(model_q, model_k, beta=0.9):
+    param_k = model_k.state_dict()
+    param_q = model_q.named_parameters()
+    for n, q in param_q:
+        param_k[n].data.copy_(beta*param_k[n].data + (1-beta)*q.data)
+    model_k.load_state_dict(param_k)
 
 def main():
     LOGGER = utils.Logger()
@@ -121,9 +127,7 @@ def main():
                 optimizer.zero_grad()
 
                 # update encoder 2
-                for key in param_names:
-                    teacher_net2.state_dict()[key] = teacher_net2.state_dict()[key] * MOMENT + \
-                                                     (1 - MOMENT) * teacher_net1.state_dict()[key]
+                momentum_update(teacher_net1, teacher_net2)
 
                 teacher_net1.eval()
                 with torch.no_grad():
@@ -179,7 +183,7 @@ def main():
                 if VAL_NEG_SAMPLES.size >= QUEUE_SIZE:
                     VAL_NEG_SAMPLES.dequeue(BATCH_SIZE)
 
-        LOGGER.info("Epoch %d: val loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
+        LOGGER.info("          val loss = %f, max=%f min=%f" % (np.average(running_loss),
                                                                 np.max(running_loss),
                                                                 np.min(running_loss)))
         LOGGER.info(
