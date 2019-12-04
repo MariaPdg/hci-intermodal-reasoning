@@ -62,6 +62,91 @@ class RankingLossFunc(nn.Module):
 
 # In[ ]:
 
+# a copy of the code!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+class ContrastiveLoss(nn.Module):
+    def __init__(self, temp, dev):
+        super(ContrastiveLoss, self).__init__()
+        self.temp = 100
+        self.dev = dev
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+
+    def predict(self, x_reprets, y_reprets):
+        batch_size = x_reprets.shape[0]
+        vec_size = x_reprets.shape[1]
+        # x_reprets = norm(x_reprets)
+        # y_reprets = norm(y_reprets)
+        embedding_loss = torch.ones(batch_size, batch_size)
+        for i in range(0, batch_size):
+            for j in range(0, batch_size):
+                embedding_loss[i][j] = torch.matmul(x_reprets[i], y_reprets[j])
+                # print(x_reprets[i], y_reprets[j], torch.matmul(x_reprets[i], y_reprets[j]))
+        # print(embedding_loss)
+        preds = torch.argmax(embedding_loss, dim=1)  # return the index of minimal of each row
+        return preds
+
+    def return_logits(self, q, k, queue):
+        N = q.size(0)
+        C = q.size(1)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        l_neg = torch.mm(q.view(N, C), queue)
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        return logits
+
+    def forward(self, q, k, queue):
+        N = q.size(0)
+        C = q.size(1)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        l_neg = torch.mm(q.view(N, C), queue)
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        labels = torch.zeros(N, dtype=torch.long, device=self.dev)
+        loss = self.loss_fn(logits/self.temp, labels)
+        # print("loss", loss)
+        # print("inside forward", logits.size())
+        return loss
+
+    def forward3(self, X, Y, queue):
+        assert (X.shape[0] == Y.shape[0] > 0)
+        loss = 0
+        num_of_samples = X.shape[0]
+
+        for idx in range(num_of_samples):
+            pos_logit = torch.matmul(X[idx], Y[idx])
+            neg_logits = []
+            for count in range(queue.size(0)):
+                if count == 1:
+                    neg_logits = torch.cat([neg_logits.view(1), torch.matmul(X[idx], queue[count]).view(1)])
+                elif count > 1:
+                    neg_logits = torch.cat([neg_logits, torch.matmul(X[idx], queue[count]).view(1)])
+                else:
+                    neg_logits = torch.matmul(X[idx], queue[count])
+
+            logits = torch.cat([pos_logit.view(1), neg_logits])
+            loss += F.cross_entropy(logits.view((1, logits.size(0)))/self.temp,
+                                    torch.zeros(1, dtype=torch.long, device=self.dev))
+
+        return loss/num_of_samples
 
 
+class CustomedQueue:
+    def __init__(self):
+        self.neg_keys = []
+        self.size = 0
 
+    def empty(self):
+        return self.size == 0
+
+    def enqueue(self, new_tensor):
+        if self.size == 0:
+            self.neg_keys = new_tensor
+        else:
+            self.neg_keys = torch.cat([self.neg_keys, new_tensor])
+        self.size += new_tensor.size(0)
+
+    def dequeue(self, howmany=1):
+        if self.size > 0:
+            self.size -= howmany
+            self.neg_keys = self.neg_keys[howmany:]
+
+    def get_tensor(self):
+        return torch.transpose(self.neg_keys, 0, 1)

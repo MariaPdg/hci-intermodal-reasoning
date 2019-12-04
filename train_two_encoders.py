@@ -17,7 +17,7 @@ def main():
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
     PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
-    PARSER.add_argument("--batchsize", help="batch size", default=32, type=int)
+    PARSER.add_argument("--batchsize", help="batch size", default=128, type=int)
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
@@ -93,19 +93,21 @@ def main():
         for step, batch in enumerate(train_dataloader):
             img, cap, mask = tuple(t.to(device) for t in batch)
             if NEG_SAMPLES.empty():
-                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                with torch.no_grad():
+                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                 NEG_SAMPLES.enqueue(txt_vec)
                 continue
 
             else:
-                img_feature = vision_net.forward(img)
-                txt_feature = text_net.forward(cap, mask)
+                with torch.no_grad():
+                    img_feature = vision_net.forward(img)
+                    txt_feature = text_net.forward(cap, mask)
 
                 teacher_net1.train()
                 img_vec = teacher_net1.forward(img_feature)
                 txt_vec = teacher_net2.forward(txt_feature)
                 neg_txt_vec = NEG_SAMPLES.get_tensor()
-                neg_txt_vec = neg_txt_vec.detach()
+                #neg_txt_vec = neg_txt_vec.detach()
                 txt_vec = txt_vec.detach()
 
                 loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
@@ -124,8 +126,9 @@ def main():
                                                      (1 - MOMENT) * teacher_net1.state_dict()[key]
 
                 teacher_net1.eval()
-                img_vec = teacher_net1.forward(img_feature)
-                txt_vec = teacher_net2.forward(txt_feature)
+                with torch.no_grad():
+                    img_vec = teacher_net1.forward(img_feature)
+                    txt_vec = teacher_net2.forward(txt_feature)
                 _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
                 NEG_SAMPLES.enqueue(txt_vec)
 
@@ -152,29 +155,29 @@ def main():
         running_corrects = 0.0
         total_samples = 0
         teacher_net1.eval()
-
-        for step, batch in enumerate(valid_dataloader):
-            img, cap, mask = tuple(t.to(device) for t in batch)
-            if VAL_NEG_SAMPLES.empty():
-                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
-                VAL_NEG_SAMPLES.enqueue(txt_vec)
-                continue
-
-            else:
-                img_vec = teacher_net1.forward(vision_net.forward(img))
-                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
-                neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
-
-                loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
-                running_loss.append(loss.item())
-                _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
-                VAL_NEG_SAMPLES.enqueue(txt_vec)
-
-                running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
-                total_samples += len(preds)
-
-            if NEG_SAMPLES.size >= QUEUE_SIZE:
-                NEG_SAMPLES.dequeue(BATCH_SIZE)
+        with torch.no_grad():
+            for step, batch in enumerate(valid_dataloader):
+                img, cap, mask = tuple(t.to(device) for t in batch)
+                if VAL_NEG_SAMPLES.empty():
+                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                    VAL_NEG_SAMPLES.enqueue(txt_vec)
+                    continue
+    
+                else:
+                    img_vec = teacher_net1.forward(vision_net.forward(img))
+                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                    neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
+    
+                    loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
+                    running_loss.append(loss.item())
+                    _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
+                    VAL_NEG_SAMPLES.enqueue(txt_vec)
+    
+                    running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
+                    total_samples += len(preds)
+    
+                if VAL_NEG_SAMPLES.size >= QUEUE_SIZE:
+                    VAL_NEG_SAMPLES.dequeue(BATCH_SIZE)
 
         LOGGER.info("Epoch %d: val loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
                                                                 np.max(running_loss),
@@ -192,6 +195,8 @@ def main():
 
     print(train_losses)
     print(train_accs)
+    print(val_losses)
+    print(val_accs)
     print()
 
 
