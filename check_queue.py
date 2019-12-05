@@ -8,9 +8,7 @@ import time
 import argparse
 import numpy as np
 import sys
-import os
 import matplotlib.pyplot as plt
-
 
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from knockknock import slack_sender
@@ -20,7 +18,7 @@ def momentum_update(model_q, model_k, beta=0.9):
     param_k = model_k.state_dict()
     param_q = model_q.named_parameters()
     for n, q in param_q:
-        param_k[n].data.copy_(beta*param_k[n].data + (1-beta)*q.data)
+        param_k[n].data.copy_(beta * param_k[n].data + (1 - beta) * q.data)
     model_k.load_state_dict(param_k)
 
 
@@ -57,9 +55,6 @@ def main():
     train_data = TensorDataset(train_img, train_cap, train_mask)
     train_sampler = RandomSampler(train_data)
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
-    valid_data = TensorDataset(val_img, val_cap, val_mask)
-    valid_sampler = RandomSampler(valid_data)
-    valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE, num_workers=2)
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
@@ -78,8 +73,7 @@ def main():
     ranking_loss.train()
 
     # optimizer
-    optimizer = optim.SGD(teacher_net1.parameters(), lr=0.01, weight_decay=0.0001)
-    # optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
+    optimizer = optim.Adam(teacher_net1.parameters(), lr=3e-4)
 
     print("Start to train")
     start_time = time.time()
@@ -104,8 +98,6 @@ def main():
                 with torch.no_grad():
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                 NEG_SAMPLES.enqueue(txt_vec)
-                # print(txt_vec)
-                # print()
                 continue
 
             else:
@@ -118,11 +110,6 @@ def main():
                 txt_vec = teacher_net2.forward(txt_feature)
                 neg_txt_vec = NEG_SAMPLES.get_tensor()
                 txt_vec = txt_vec.detach()
-
-                # print(img_vec)
-                # print(txt_vec)
-                # print(NEG_SAMPLES.get_tensor(False))
-                # print()
 
                 loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                 running_loss.append(loss.item())
@@ -173,20 +160,20 @@ def main():
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                     VAL_NEG_SAMPLES.enqueue(txt_vec)
                     continue
-    
+
                 else:
                     img_vec = teacher_net1.forward(vision_net.forward(img))
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                     neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
-    
+
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                     running_loss.append(loss.item())
                     _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
                     VAL_NEG_SAMPLES.enqueue(txt_vec)
-    
+
                     running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
                     total_samples += len(preds)
-    
+
                 VAL_NEG_SAMPLES.dequeue(BATCH_SIZE)
 
         LOGGER.info("          val loss = %f, max=%f min=%f" % (np.average(running_loss),

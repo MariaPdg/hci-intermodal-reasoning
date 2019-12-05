@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional
 import utils
 import text_network
 import teacher_network
@@ -83,14 +84,18 @@ for nb_neg_samples in [8, 16, 32, 64, 128, 256]:
         #     print("2", mul)
 
         logits = []
+        cos = []
         with torch.set_grad_enabled(False):
             img_vec = teacher_net1.forward(vision_net.forward(img))
             txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
             key = img_vec[0]
             for du in range(1, img_vec.size(0)):
                 logits.append(torch.matmul(key, txt_vec[du]).item())
+                cos.append(torch.nn.functional.cosine_similarity(key.view(1, key.size(0)),
+                                                                 txt_vec[du].view(1, key.size(0))).item())
 
         pred = np.argmax(logits)
+        assert np.argmax(logits) == np.argmax(cos)
         if pred == 0:
             running_corrects += 1
 

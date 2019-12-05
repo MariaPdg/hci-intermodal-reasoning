@@ -11,10 +11,21 @@ class TeacherNet(nn.Module):
         self.linear3 = nn.Linear(in_features=4096, out_features=100)
 
     def forward(self, inputs):
-        out = F.relu(self.linear1(inputs))
-        out = F.relu(self.linear2(out))
-        out = F.relu(self.linear3(out))
-        out = F.normalize(out, p=2, dim=1)
+        out = F.leaky_relu(self.linear1(inputs))
+        out = F.leaky_relu(self.linear2(out))
+        out = F.leaky_relu(self.linear3(out))
+        out = F.normalize(out)
+        return out
+
+
+class TeacherNet2(nn.Module):
+    def __init__(self):
+        super(TeacherNet2, self).__init__()
+        self.linear1 = nn.Linear(in_features=2048, out_features=100)
+
+    def forward(self, inputs):
+        out = self.linear1(inputs)
+        out = F.normalize(out)
         return out
 
 
@@ -58,7 +69,7 @@ def norm(vec):
 class ContrastiveLoss(nn.Module):
     def __init__(self, temp, dev):
         super(ContrastiveLoss, self).__init__()
-        self.temp = 100
+        self.temp = 0.07
         self.dev = dev
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
@@ -70,7 +81,7 @@ class ContrastiveLoss(nn.Module):
         embedding_loss = torch.ones(batch_size, batch_size)
         for i in range(0, batch_size):
             for j in range(0, batch_size):
-                embedding_loss[i][j] = torch.matmul(x_reprets[i], y_reprets[j])
+                embedding_loss[i][j] = nn.functional.cosine_similarity(x_reprets[i], y_reprets[j], dim=-1)
                 # print(x_reprets[i], y_reprets[j], torch.matmul(x_reprets[i], y_reprets[j]))
         # print(embedding_loss)
         preds = torch.argmax(embedding_loss, dim=1)  # return the index of minimal of each row
@@ -79,16 +90,18 @@ class ContrastiveLoss(nn.Module):
     def return_logits(self, q, k, queue):
         N = q.size(0)
         C = q.size(1)
+        K = queue.shape[0]
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
-        l_neg = torch.mm(q.view(N, C), queue)
+        l_neg = torch.mm(q.view(N, C), queue.T.view(-1, K))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         return logits, torch.argmax(logits, dim=1)
 
     def forward(self, q, k, queue):
         N = q.size(0)
         C = q.size(1)
+        K = queue.shape[0]
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
-        l_neg = torch.mm(q.view(N, C), queue)
+        l_neg = torch.mm(q.view(N, C), queue.T.view(-1, K))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         labels = torch.zeros(N, dtype=torch.long, device=self.dev)
         loss = self.loss_fn(logits/self.temp, labels)
@@ -120,9 +133,10 @@ class ContrastiveLoss(nn.Module):
 
 
 class CustomedQueue:
-    def __init__(self):
+    def __init__(self, max_size=1024):
         self.neg_keys = []
         self.size = 0
+        self.max_size = max_size
 
     def empty(self):
         return self.size == 0
@@ -132,26 +146,44 @@ class CustomedQueue:
             self.neg_keys = new_tensor
         else:
             self.neg_keys = torch.cat([self.neg_keys, new_tensor])
-        self.size += new_tensor.size(0)
+        self.size = self.neg_keys.size(0)
 
     def dequeue(self, howmany=1):
-        if self.size > 0:
-            self.size -= howmany
+        if self.size > self.max_size:
             self.neg_keys = self.neg_keys[howmany:]
+            self.size = self.neg_keys.size(0)
+            # print("m",self.neg_keys[-howmany:])
+            # print("p",self.neg_keys[howmany:])
 
-    def get_tensor(self):
-        return torch.transpose(self.neg_keys, 0, 1)
+    def get_tensor(self, transpose=False):
+        if transpose:
+            return torch.transpose(self.neg_keys, 0, 1)
+        else:
+            return self.neg_keys
+
 
 
 if __name__ == "__main__":
-    q = CustomedQueue()
-    for i in range(3):
-        if q.size >= 3:
-            q.dequeue()
-        u1 = torch.rand((4, 3))
-        q.enqueue(u1)
-        print(q.size, q.neg_keys.size())
-        print(q.neg_keys)
+    from torch.utils.data import TensorDataset, DataLoader, RandomSampler
+
+    train_img = torch.rand((100, 3))
+    train_data = TensorDataset(train_img)
+    train_sampler = RandomSampler(train_data)
+    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=2, num_workers=2)
+    q = CustomedQueue(10)
+    for step, batch in enumerate(train_dataloader):
+        batch = batch[0]
+        if q.empty():
+            q.enqueue(batch)
+            continue
+        else:
+            print("batch")
+            print(batch)
+            print("queue")
+            print(q.get_tensor(False), q.get_tensor(False).size(), q.size)
+            input()
+            q.enqueue(batch)
+        q.dequeue(2)
 
     # u1 = torch.rand((4, 3))
     # u2 = torch.rand((4, 3))
