@@ -29,6 +29,36 @@ class TeacherNet2(nn.Module):
         return out
 
 
+class TeacherNet3(nn.Module):
+    def __init__(self):
+        super(TeacherNet3, self).__init__()
+        self.linear1 = nn.Linear(in_features=2048, out_features=4096)
+        self.linear2 = nn.Linear(in_features=4096, out_features=4096)
+        self.linear3 = nn.Linear(in_features=4096, out_features=100)
+
+    def forward(self, inputs):
+        out = F.leaky_relu(self.linear1(inputs))
+        out = F.leaky_relu(self.linear2(out))
+        out = self.linear3(out)
+        out = F.normalize(out)
+        return out
+
+
+class TeacherNet4(nn.Module):
+    def __init__(self):
+        super(TeacherNet4, self).__init__()
+        self.linear1 = nn.Linear(in_features=2048, out_features=4096)
+        self.linear2 = nn.Linear(in_features=4096, out_features=4096)
+        self.linear3 = nn.Linear(in_features=4096, out_features=100)
+
+    def forward(self, inputs):
+        out = self.linear1(inputs)
+        out = self.linear2(out)
+        out = self.linear3(out)
+        out = F.normalize(out)
+        return out
+
+
 class RankingLossFunc(nn.Module):
     def __init__(self, delta):
         super(RankingLossFunc, self).__init__()

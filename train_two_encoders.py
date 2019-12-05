@@ -31,6 +31,7 @@ def main():
     PARSER.add_argument("--batchsize", help="batch size", default=128, type=int)
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
+    PARSER.add_argument("--arch", help="which architecture", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
 
     MY_ARGS = PARSER.parse_args()
@@ -63,8 +64,18 @@ def main():
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
-    teacher_net1 = teacher_network.TeacherNet()
-    teacher_net2 = teacher_network.TeacherNet()
+    if MY_ARGS.arch == 1:
+        teacher_net1 = teacher_network.TeacherNet()
+        teacher_net2 = teacher_network.TeacherNet()
+    elif MY_ARGS.arch == 2:
+        teacher_net1 = teacher_network.TeacherNet2()
+        teacher_net2 = teacher_network.TeacherNet2()
+    elif MY_ARGS.arch == 3:
+        teacher_net1 = teacher_network.TeacherNet3()
+        teacher_net2 = teacher_network.TeacherNet3()
+    elif MY_ARGS.arch == 4:
+        teacher_net1 = teacher_network.TeacherNet4()
+        teacher_net2 = teacher_network.TeacherNet4()
     ranking_loss = teacher_network.ContrastiveLoss(1, device)
     teacher_net1.to(device)
     teacher_net2.to(device)
@@ -128,7 +139,7 @@ def main():
                 running_loss.append(loss.item())
                 loss.backward()
 
-                torch.nn.utils.clip_grad_norm_(parameters=teacher_net1.parameters(), max_norm=1.0)
+                # torch.nn.utils.clip_grad_norm_(parameters=teacher_net1.parameters(), max_norm=1.0)
 
                 # update encoder 1
                 optimizer.step()
@@ -200,8 +211,8 @@ def main():
         val_accs.append(float(running_corrects / total_samples))
 
     model_name = "%d" % running_corrects
-    torch.save(teacher_net1.state_dict(), "models/enc1-%s-norm" % model_name)
-    torch.save(teacher_net2.state_dict(), "models/enc2-%s-norm" % model_name)
+    # torch.save(teacher_net1.state_dict(), "models/enc1-%s-norm" % model_name)
+    # torch.save(teacher_net2.state_dict(), "models/enc2-%s-norm" % model_name)
 
     print(train_losses)
     print(train_accs)
@@ -224,7 +235,7 @@ def main():
     axs[1].set_xlabel('epoch')
     axs[1].set_title('train acc')
 
-    fig.savefig("figures/fig_training2enc.png")
+    fig.savefig("figures/fig_training2enc-arch%d-nogradclip.png" % MY_ARGS.arch)
 
 
 if __name__ == '__main__':
