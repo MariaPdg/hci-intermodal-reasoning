@@ -11,16 +11,15 @@ import sys
 import os
 import matplotlib.pyplot as plt
 
-
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from knockknock import slack_sender
 
 
-def momentum_update(model_q, model_k, beta=0.9):
+def momentum_update(model_q, model_k, beta=0.999):
     param_k = model_k.state_dict()
     param_q = model_q.named_parameters()
     for n, q in param_q:
-        param_k[n].data.copy_(beta*param_k[n].data + (1-beta)*q.data)
+        param_k[n].data.copy_(beta * param_k[n].data + (1 - beta) * q.data)
     model_k.load_state_dict(param_k)
 
 
@@ -32,7 +31,9 @@ def main():
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=1, type=int)
+    PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
+    PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
 
     MY_ARGS = PARSER.parse_args()
 
@@ -53,7 +54,7 @@ def main():
 
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:0"
+    device = "cuda:1"
 
     train_data = TensorDataset(train_img, train_cap, train_mask)
     train_sampler = RandomSampler(train_data)
@@ -89,8 +90,10 @@ def main():
     ranking_loss.train()
 
     # optimizer
-    optimizer = optim.SGD(teacher_net1.parameters(), lr=0.01, weight_decay=0.0001)
-    # optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
+    if MY_ARGS.optim == 1:
+        optimizer = optim.SGD(teacher_net1.parameters(), lr=0.01, weight_decay=0.0001, momentum=0.9)
+    elif MY_ARGS.optim == 2:
+        optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
 
     print("Start to train")
     start_time = time.time()
@@ -99,7 +102,6 @@ def main():
     val_losses = []
     val_accs = []
     NEG_SAMPLES = teacher_network.CustomedQueue()
-    VAL_NEG_SAMPLES = teacher_network.CustomedQueue()
 
     for epoch in range(NB_EPOCHS):
         """
@@ -115,8 +117,8 @@ def main():
                 with torch.no_grad():
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                 NEG_SAMPLES.enqueue(txt_vec)
-                # print(txt_vec)
-                # print()
+                #                 print(txt_vec)
+                #                 print()
                 continue
 
             else:
@@ -130,10 +132,11 @@ def main():
                 neg_txt_vec = NEG_SAMPLES.get_tensor()
                 txt_vec = txt_vec.detach()
 
-                # print(img_vec)
-                # print(txt_vec)
-                # print(NEG_SAMPLES.get_tensor(False))
-                # print()
+                #                 print(neg_txt_vec.size(), img_vec.size())
+                #                 print(img_vec)
+                #                 print(txt_vec)
+                #                 print(NEG_SAMPLES.get_tensor(False))
+                #                 print()
 
                 loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                 running_loss.append(loss.item())
@@ -154,11 +157,10 @@ def main():
                     txt_vec = teacher_net2.forward(txt_feature)
                 _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
                 NEG_SAMPLES.enqueue(txt_vec)
+                NEG_SAMPLES.dequeue(BATCH_SIZE)
 
                 running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
                 total_samples += len(preds)
-
-            NEG_SAMPLES.dequeue(BATCH_SIZE)
 
         LOGGER.info("Epoch %d: train loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
                                                                   np.max(running_loss),
@@ -177,6 +179,7 @@ def main():
         running_corrects = 0.0
         total_samples = 0
         teacher_net1.eval()
+        VAL_NEG_SAMPLES = teacher_network.CustomedQueue()
         with torch.no_grad():
             for step, batch in enumerate(valid_dataloader):
                 img, cap, mask = tuple(t.to(device) for t in batch)
@@ -184,21 +187,24 @@ def main():
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                     VAL_NEG_SAMPLES.enqueue(txt_vec)
                     continue
-    
+
                 else:
                     img_vec = teacher_net1.forward(vision_net.forward(img))
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                     neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
-    
+
+                    #                     print(img_vec)
+                    #                     print(txt_vec)
+                    #                     print(VAL_NEG_SAMPLES.get_tensor(False))
+                    #                     print()
+
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                     running_loss.append(loss.item())
                     _, preds = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
                     VAL_NEG_SAMPLES.enqueue(txt_vec)
-    
+                    VAL_NEG_SAMPLES.dequeue(BATCH_SIZE)
                     running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
                     total_samples += len(preds)
-    
-                VAL_NEG_SAMPLES.dequeue(BATCH_SIZE)
 
         LOGGER.info("          val loss = %f, max=%f min=%f" % (np.average(running_loss),
                                                                 np.max(running_loss),
@@ -210,15 +216,10 @@ def main():
         val_losses.append(np.average(running_loss))
         val_accs.append(float(running_corrects / total_samples))
 
-    model_name = "%d" % running_corrects
-    # torch.save(teacher_net1.state_dict(), "models/enc1-%s-norm" % model_name)
-    # torch.save(teacher_net2.state_dict(), "models/enc2-%s-norm" % model_name)
-
-    print(train_losses)
-    print(train_accs)
-    print(val_losses)
-    print(val_accs)
-    print()
+    if MY_ARGS.cache == 1:
+        model_name = "%d" % running_corrects
+        torch.save(teacher_net1.state_dict(), "models/enc1-%s-norm" % model_name)
+        torch.save(teacher_net2.state_dict(), "models/enc2-%s-norm" % model_name)
 
     # plotting
     plt.rcParams["figure.figsize"] = [16, 9]
@@ -228,14 +229,15 @@ def main():
     axs[0].plot(range(len(train_losses)), train_losses,
                 range(len(train_losses)), val_losses, '-')
     axs[0].set_title('train loss')
-    fig.suptitle('Training loss and accuracy with batch size 128', fontsize=16)
+    fig.suptitle('Training loss and accuracy with batch size %d' % BATCH_SIZE, fontsize=16)
 
     axs[1].plot(range(len(train_accs)), train_accs,
                 range(len(val_accs)), val_accs, '-')
     axs[1].set_xlabel('epoch')
     axs[1].set_title('train acc')
 
-    fig.savefig("figures/fig_training2enc-arch%d-nogradclip.png" % MY_ARGS.arch)
+    fig.savefig("figures/fig_training2enc-arch%d-optim%d-nogradclip.png" % (MY_ARGS.arch,
+                                                                            MY_ARGS.optim))
 
 
 if __name__ == '__main__':

@@ -180,7 +180,7 @@ class CustomedQueue:
 
     def dequeue(self, howmany=1):
         if self.size > self.max_size:
-            self.neg_keys = self.neg_keys[howmany:]
+            self.neg_keys = self.neg_keys[-self.max_size:]
             self.size = self.neg_keys.size(0)
             # print("m",self.neg_keys[-howmany:])
             # print("p",self.neg_keys[howmany:])
