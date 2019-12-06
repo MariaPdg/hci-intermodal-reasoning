@@ -64,10 +64,11 @@ class RankingLossFunc(nn.Module):
 
 # a copy of the code!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
+
 class ContrastiveLoss(nn.Module):
     def __init__(self, temp, dev):
         super(ContrastiveLoss, self).__init__()
-        self.temp = 100
+        self.temp = 0.07
         self.dev = dev
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
@@ -79,7 +80,7 @@ class ContrastiveLoss(nn.Module):
         embedding_loss = torch.ones(batch_size, batch_size)
         for i in range(0, batch_size):
             for j in range(0, batch_size):
-                embedding_loss[i][j] = torch.matmul(x_reprets[i], y_reprets[j])
+                embedding_loss[i][j] = nn.functional.cosine_similarity(x_reprets[i], y_reprets[j], dim=-1)
                 # print(x_reprets[i], y_reprets[j], torch.matmul(x_reprets[i], y_reprets[j]))
         # print(embedding_loss)
         preds = torch.argmax(embedding_loss, dim=1)  # return the index of minimal of each row
@@ -88,16 +89,18 @@ class ContrastiveLoss(nn.Module):
     def return_logits(self, q, k, queue):
         N = q.size(0)
         C = q.size(1)
+        K = queue.shape[0]
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
-        l_neg = torch.mm(q.view(N, C), queue)
+        l_neg = torch.mm(q.view(N, C), queue.T.view(-1, K))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
-        return logits
+        return logits, torch.argmax(logits, dim=1)
 
     def forward(self, q, k, queue):
         N = q.size(0)
         C = q.size(1)
+        K = queue.shape[0]
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
-        l_neg = torch.mm(q.view(N, C), queue)
+        l_neg = torch.mm(q.view(N, C), queue.T.view(-1, K))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         labels = torch.zeros(N, dtype=torch.long, device=self.dev)
         loss = self.loss_fn(logits/self.temp, labels)
@@ -128,10 +131,35 @@ class ContrastiveLoss(nn.Module):
         return loss/num_of_samples
 
 
+
+# class CustomedQueue:
+#     def __init__(self):
+#         self.neg_keys = []
+#         self.size = 0
+
+#     def empty(self):
+#         return self.size == 0
+
+#     def enqueue(self, new_tensor):
+#         if self.size == 0:
+#             self.neg_keys = new_tensor
+#         else:
+#             self.neg_keys = torch.cat([self.neg_keys, new_tensor])
+#         self.size += new_tensor.size(0)
+
+#     def dequeue(self, howmany=1):
+#         if self.size > 0:
+#             self.size -= howmany
+#             self.neg_keys = self.neg_keys[howmany:]
+
+#     def get_tensor(self):
+#         return torch.transpose(self.neg_keys, 0, 1)
+
 class CustomedQueue:
-    def __init__(self):
+    def __init__(self, max_size=1024):
         self.neg_keys = []
         self.size = 0
+        self.max_size = max_size
 
     def empty(self):
         return self.size == 0
@@ -141,12 +169,17 @@ class CustomedQueue:
             self.neg_keys = new_tensor
         else:
             self.neg_keys = torch.cat([self.neg_keys, new_tensor])
-        self.size += new_tensor.size(0)
+        self.size = self.neg_keys.size(0)
 
     def dequeue(self, howmany=1):
-        if self.size > 0:
-            self.size -= howmany
-            self.neg_keys = self.neg_keys[howmany:]
+        if self.size > self.max_size:
+            self.neg_keys = self.neg_keys[-self.max_size:]
+            self.size = self.neg_keys.size(0)
+            # print("m",self.neg_keys[-howmany:])
+            # print("p",self.neg_keys[howmany:])
 
-    def get_tensor(self):
-        return torch.transpose(self.neg_keys, 0, 1)
+    def get_tensor(self, transpose=False):
+        if transpose:
+            return torch.transpose(self.neg_keys, 0, 1)
+        else:
+            return self.neg_keys
