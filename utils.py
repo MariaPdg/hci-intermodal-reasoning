@@ -83,7 +83,7 @@ def cache_data_helper1(which, limit):
         image_list = pickle.load(fp)
 
     ID2CAP, IMAGE2ID = read_caption("dataset/annotations/captions_%s2014.json" % which)
-    traindir = "dataset/%s" % which
+    traindir = "dataset/images/%s" % which
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     datasets.ImageFolder.__getitem__ = new_get

@@ -122,7 +122,7 @@ def main():
         # augment training images
         if MY_ARGS.aug == 1:
             train_loader = torch.utils.data.DataLoader(
-                datasets.ImageFolder("dataset/train", transforms.Compose([
+                datasets.ImageFolder("dataset/images/train", transforms.Compose([
                     transforms.RandomResizedCrop(224),
                     transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
@@ -130,14 +130,13 @@ def main():
                                          std=[0.229, 0.224, 0.225]),
                 ])),
                 batch_size=1024, shuffle=False,
-                num_workers=2, pin_memory=False)
+                num_workers=2, pin_memory=True)
             train_img_aug = []
             for step, batch in enumerate(train_loader):
                 if step == 0:
                     train_img_aug = batch[0]
                 else:
                     train_img_aug = torch.cat([train_img_aug, batch[0]], dim=0)
-
             train_data = TensorDataset(train_img_aug, train_cap, train_mask)
             train_sampler = RandomSampler(train_data)
             train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
