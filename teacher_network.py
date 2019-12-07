@@ -29,16 +29,41 @@ class TeacherNet2(nn.Module):
         return out
 
 
-class TeacherNet3(nn.Module):
+class TeacherNet3query(nn.Module):
     def __init__(self):
-        super(TeacherNet3, self).__init__()
-        self.linear1 = nn.Linear(in_features=2048, out_features=4096)
+        super(TeacherNet3query, self).__init__()
+        self.linear0 = nn.Linear(in_features=2048, out_features=768)
+        self.linear1 = nn.Linear(in_features=768, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
         self.linear3 = nn.Linear(in_features=4096, out_features=100)
+        self.dropout1 = nn.Dropout(0.3)
+        self.dropout2 = nn.Dropout(0.5)
+
+    def forward(self, inputs):
+        out = F.leaky_relu(self.linear0(inputs))
+        out = F.leaky_relu(self.linear1(out))
+        out = self.dropout1(out)
+        out = F.leaky_relu(self.linear2(out))
+        out = self.dropout2(out)
+        out = self.linear3(out)
+        out = F.normalize(out)
+        return out
+
+
+class TeacherNet3key(nn.Module):
+    def __init__(self):
+        super(TeacherNet3key, self).__init__()
+        self.linear1 = nn.Linear(in_features=768, out_features=4096)
+        self.linear2 = nn.Linear(in_features=4096, out_features=4096)
+        self.linear3 = nn.Linear(in_features=4096, out_features=100)
+        self.dropout1 = nn.Dropout(0.3)
+        self.dropout2 = nn.Dropout(0.5)
 
     def forward(self, inputs):
         out = F.leaky_relu(self.linear1(inputs))
+        out = self.dropout1(out)
         out = F.leaky_relu(self.linear2(out))
+        out = self.dropout2(out)
         out = self.linear3(out)
         out = F.normalize(out)
         return out
@@ -87,15 +112,6 @@ class RankingLossFunc(nn.Module):
         return preds
 
 
-def norm(vec):
-    mean_vec = torch.mean(vec, dim=1)
-    std_vec = torch.std(vec, dim=1)
-    for i in range(vec.size(0)):
-        vec[i] -= mean_vec[i]
-        vec[i] /= std_vec[i]
-    return vec
-
-
 class ContrastiveLoss(nn.Module):
     def __init__(self, temp, dev):
         super(ContrastiveLoss, self).__init__()
@@ -139,28 +155,6 @@ class ContrastiveLoss(nn.Module):
         # print("inside forward", logits.size())
         return loss
 
-    def forward3(self, X, Y, queue):
-        assert (X.shape[0] == Y.shape[0] > 0)
-        loss = 0
-        num_of_samples = X.shape[0]
-
-        for idx in range(num_of_samples):
-            pos_logit = torch.matmul(X[idx], Y[idx])
-            neg_logits = []
-            for count in range(queue.size(0)):
-                if count == 1:
-                    neg_logits = torch.cat([neg_logits.view(1), torch.matmul(X[idx], queue[count]).view(1)])
-                elif count > 1:
-                    neg_logits = torch.cat([neg_logits, torch.matmul(X[idx], queue[count]).view(1)])
-                else:
-                    neg_logits = torch.matmul(X[idx], queue[count])
-
-            logits = torch.cat([pos_logit.view(1), neg_logits])
-            loss += F.cross_entropy(logits.view((1, logits.size(0)))/self.temp,
-                                    torch.zeros(1, dtype=torch.long, device=self.dev))
-
-        return loss/num_of_samples
-
 
 class CustomedQueue:
     def __init__(self, max_size=1024):
@@ -192,28 +186,57 @@ class CustomedQueue:
             return self.neg_keys
 
 
+class TeacherNet3key2(nn.Module):
+    def __init__(self):
+        super(TeacherNet3key2, self).__init__()
+        self.linear1 = nn.Linear(in_features=768, out_features=10)
+        self.linear2 = nn.Linear(in_features=10, out_features=10)
+        self.linear3 = nn.Linear(in_features=10, out_features=10)
+        self.dropout1 = nn.Dropout(0.3)
+        self.dropout2 = nn.Dropout(0.5)
+
+    def forward(self, inputs):
+        out = F.leaky_relu(self.linear1(inputs))
+        out = self.dropout1(out)
+        print(out)
+        print(out.size())
+        out = F.leaky_relu(self.linear2(out))
+        out = self.dropout2(out)
+        out = self.linear3(out)
+        out = F.normalize(out)
+        return out
+
 
 if __name__ == "__main__":
-    from torch.utils.data import TensorDataset, DataLoader, RandomSampler
+    e2 = TeacherNet3key2()
+    u1 = torch.rand(1, 768)
+    e2.eval()
+    e2(u1)
+    e2(u1)
 
-    train_img = torch.rand((100, 3))
-    train_data = TensorDataset(train_img)
-    train_sampler = RandomSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=2, num_workers=2)
-    q = CustomedQueue(10)
-    for step, batch in enumerate(train_dataloader):
-        batch = batch[0]
-        if q.empty():
-            q.enqueue(batch)
-            continue
-        else:
-            print("batch")
-            print(batch)
-            print("queue")
-            print(q.get_tensor(False), q.get_tensor(False).size(), q.size)
-            input()
-            q.enqueue(batch)
-        q.dequeue(2)
+
+
+
+    # from torch.utils.data import TensorDataset, DataLoader, RandomSampler
+    #
+    # train_img = torch.rand((100, 3))
+    # train_data = TensorDataset(train_img)
+    # train_sampler = RandomSampler(train_data)
+    # train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=2, num_workers=2)
+    # q = CustomedQueue(10)
+    # for step, batch in enumerate(train_dataloader):
+    #     batch = batch[0]
+    #     if q.empty():
+    #         q.enqueue(batch)
+    #         continue
+    #     else:
+    #         print("batch")
+    #         print(batch)
+    #         print("queue")
+    #         print(q.get_tensor(False), q.get_tensor(False).size(), q.size)
+    #         input()
+    #         q.enqueue(batch)
+    #     q.dequeue(2)
 
     # u1 = torch.rand((4, 3))
     # u2 = torch.rand((4, 3))
