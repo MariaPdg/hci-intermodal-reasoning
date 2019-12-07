@@ -89,7 +89,7 @@ def cache_data_helper1(which, limit):
     datasets.ImageFolder.__getitem__ = new_get
     train_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(traindir, transforms.Compose([
-            transforms.RandomResizedCrop(224),
+            transforms.Resize((224, 224)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,

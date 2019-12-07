@@ -10,6 +10,8 @@ import numpy as np
 import sys
 import os
 import matplotlib.pyplot as plt
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
 
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from knockknock import slack_sender
@@ -19,7 +21,8 @@ def momentum_update(model_q, model_k, beta=0.999):
     param_k = model_k.state_dict()
     param_q = model_q.named_parameters()
     for n, q in param_q:
-        param_k[n].data.copy_(beta * param_k[n].data + (1 - beta) * q.data)
+        if n in param_k:
+            param_k[n].data.copy_(beta * param_k[n].data + (1 - beta) * q.data)
     model_k.load_state_dict(param_k)
 
 
@@ -30,10 +33,12 @@ def main():
     PARSER.add_argument("--batchsize", help="batch size", default=128, type=int)
     PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
-    PARSER.add_argument("--arch", help="which architecture", default=1, type=int)
+    PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
     PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
+    PARSER.add_argument("--aug", help="if augment training", default=1, type=int)
+
 
     MY_ARGS = PARSER.parse_args()
 
@@ -54,11 +59,13 @@ def main():
 
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:1"
+    device = "cuda:0"
 
-    train_data = TensorDataset(train_img, train_cap, train_mask)
-    train_sampler = RandomSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
+    if MY_ARGS.aug == 0:
+        train_data = TensorDataset(train_img, train_cap, train_mask)
+        train_sampler = RandomSampler(train_data)
+        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
+
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
     valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE, num_workers=2)
@@ -72,8 +79,8 @@ def main():
         teacher_net1 = teacher_network.TeacherNet2()
         teacher_net2 = teacher_network.TeacherNet2()
     elif MY_ARGS.arch == 3:
-        teacher_net1 = teacher_network.TeacherNet3()
-        teacher_net2 = teacher_network.TeacherNet3()
+        teacher_net1 = teacher_network.TeacherNet3query()
+        teacher_net2 = teacher_network.TeacherNet3key()
     elif MY_ARGS.arch == 4:
         teacher_net1 = teacher_network.TeacherNet4()
         teacher_net2 = teacher_network.TeacherNet4()
@@ -86,7 +93,7 @@ def main():
     text_net.model.eval()
     vision_net.model.eval()
     teacher_net1.train()
-    teacher_net2.eval()
+    teacher_net2.train()
     ranking_loss.train()
 
     # optimizer
@@ -96,7 +103,6 @@ def main():
         optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
 
     print("Start to train")
-    start_time = time.time()
     train_losses = []
     train_accs = []
     val_losses = []
@@ -110,15 +116,41 @@ def main():
         running_loss = []
         running_corrects = 0.0
         total_samples = 0
+        teacher_net1.train()
+        start_time = time.time()
 
+        # augment training images
+        if MY_ARGS.aug == 1:
+            train_loader = torch.utils.data.DataLoader(
+                datasets.ImageFolder("dataset/train", transforms.Compose([
+                    transforms.RandomResizedCrop(224),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225]),
+                ])),
+                batch_size=1024, shuffle=False,
+                num_workers=2, pin_memory=False)
+            train_img_aug = []
+            for step, batch in enumerate(train_loader):
+                if step == 0:
+                    train_img_aug = batch[0]
+                else:
+                    train_img_aug = torch.cat([train_img_aug, batch[0]], dim=0)
+
+            train_data = TensorDataset(train_img_aug, train_cap, train_mask)
+            train_sampler = RandomSampler(train_data)
+            train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
+
+        start_time2 = time.time()
         for step, batch in enumerate(train_dataloader):
             img, cap, mask = tuple(t.to(device) for t in batch)
             if NEG_SAMPLES.empty():
                 with torch.no_grad():
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                 NEG_SAMPLES.enqueue(txt_vec)
-                #                 print(txt_vec)
-                #                 print()
+                # print(txt_vec)
+                # print()
                 continue
 
             else:
@@ -126,17 +158,16 @@ def main():
                     img_feature = vision_net.forward(img)
                     txt_feature = text_net.forward(cap, mask)
 
-                teacher_net1.train()
                 img_vec = teacher_net1.forward(img_feature)
                 txt_vec = teacher_net2.forward(txt_feature)
                 neg_txt_vec = NEG_SAMPLES.get_tensor()
                 txt_vec = txt_vec.detach()
 
-                #                 print(neg_txt_vec.size(), img_vec.size())
-                #                 print(img_vec)
-                #                 print(txt_vec)
-                #                 print(NEG_SAMPLES.get_tensor(False))
-                #                 print()
+                # print(neg_txt_vec.size(), img_vec.size())
+                # print(img_vec)
+                # print(txt_vec)
+                # print(NEG_SAMPLES.get_tensor(False))
+                # print()
 
                 loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                 running_loss.append(loss.item())
@@ -179,6 +210,7 @@ def main():
         running_corrects = 0.0
         total_samples = 0
         teacher_net1.eval()
+        teacher_net2.eval()
         VAL_NEG_SAMPLES = teacher_network.CustomedQueue()
         with torch.no_grad():
             for step, batch in enumerate(valid_dataloader):
@@ -193,10 +225,10 @@ def main():
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                     neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
 
-                    #                     print(img_vec)
-                    #                     print(txt_vec)
-                    #                     print(VAL_NEG_SAMPLES.get_tensor(False))
-                    #                     print()
+                    # print(img_vec)
+                    # print(txt_vec)
+                    # print(VAL_NEG_SAMPLES.get_tensor(False))
+                    # print()
 
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                     running_loss.append(loss.item())
@@ -215,6 +247,10 @@ def main():
 
         val_losses.append(np.average(running_loss))
         val_accs.append(float(running_corrects / total_samples))
+        start_time3 = time.time()
+        LOGGER.error("Training took %.3f (aug: %.3f, compute: %.3f)" % (start_time3-start_time,
+                                                                        start_time2-start_time,
+                                                                        start_time3-start_time2))
 
     if MY_ARGS.cache == 1:
         model_name = "%d" % running_corrects
@@ -236,8 +272,10 @@ def main():
     axs[1].set_xlabel('epoch')
     axs[1].set_title('train acc')
 
-    fig.savefig("figures/fig_training2enc-arch%d-optim%d-nogradclip.png" % (MY_ARGS.arch,
-                                                                            MY_ARGS.optim))
+    fig_dir = "figures/fig_training2enc-arch%d-optim%d-nogradclip.png" % (MY_ARGS.arch,
+                                                                          MY_ARGS.optim)
+    fig.savefig(fig_dir)
+    print("plotting figures save at %s" % fig_dir)
 
 
 if __name__ == '__main__':
