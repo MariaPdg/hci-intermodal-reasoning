@@ -59,7 +59,7 @@ def main():
 
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:0"
+    device = "cuda:1"
 
     if MY_ARGS.aug == 0:
         train_data = TensorDataset(train_img, train_cap, train_mask)
@@ -108,7 +108,18 @@ def main():
     val_losses = []
     val_accs = []
     NEG_SAMPLES = teacher_network.CustomedQueue()
-
+    
+    train_loader = torch.utils.data.DataLoader(
+                datasets.ImageFolder("dataset/images/train", transforms.Compose([
+                    transforms.RandomResizedCrop(224),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225]),
+                ])),
+                batch_size=128, shuffle=False,
+                num_workers=2, pin_memory=False)
+    
     for epoch in range(NB_EPOCHS):
         """
         Training
@@ -121,16 +132,6 @@ def main():
 
         # augment training images
         if MY_ARGS.aug == 1:
-            train_loader = torch.utils.data.DataLoader(
-                datasets.ImageFolder("dataset/images/train", transforms.Compose([
-                    transforms.RandomResizedCrop(224),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225]),
-                ])),
-                batch_size=1024, shuffle=False,
-                num_workers=2, pin_memory=True)
             train_img_aug = []
             for step, batch in enumerate(train_loader):
                 if step == 0:
