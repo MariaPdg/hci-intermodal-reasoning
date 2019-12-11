@@ -13,3 +13,4 @@ mask_faulty
 cap_faulty
 img_vec_faulty
 txt_vec_faulty
+logs/

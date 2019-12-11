@@ -65,7 +65,7 @@ class TeacherNet3key(nn.Module):
         out = F.leaky_relu(self.linear2(out))
         out = self.dropout2(out)
         out = self.linear3(out)
-        out = F.normalize(out)
+        # out = F.normalize(out)
         return out
 
 
@@ -140,7 +140,8 @@ class ContrastiveLoss(nn.Module):
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
         l_neg = torch.mm(q.view(N, C), queue.T.view(-1, K))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
-        return logits, torch.argmax(logits, dim=1)
+        sim_diff = l_pos.squeeze()-torch.max(l_neg, dim=1).values
+        return logits, torch.argmax(logits, dim=1), torch.mean(sim_diff).item()
 
     def forward(self, q, k, queue):
         N = q.size(0)
@@ -238,15 +239,14 @@ if __name__ == "__main__":
     #         q.enqueue(batch)
     #     q.dequeue(2)
 
-    # u1 = torch.rand((4, 3))
-    # u2 = torch.rand((4, 3))
-    # du = torch.rand((6, 3))
-    # loss = ContrastiveLoss(1, "cpu")
-    #
-    # print(u1)
-    # print(u2)
-    # loss.predict(u1, u2)
-    # print(loss.return_logits(u1, u2, du))
+    u1 = torch.rand((4, 3))
+    u2 = torch.rand((4, 3))
+    du = torch.rand((6, 3))
+    loss = ContrastiveLoss(1, "cpu")
+
+    print(u1)
+    print(u2)
+    loss.return_logits(u1, u2, du)
 
     # crossent = torch.nn.CrossEntropyLoss()
     # inp = torch.rand((4, 3), requires_grad=True)
