@@ -33,7 +33,6 @@ def main():
     PARSER = argparse.ArgumentParser()
     PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=128, type=int)
-    PARSER.add_argument("--train_modality_net", help="whether to train modality-specific network", default=0, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
@@ -111,6 +110,8 @@ def main():
                 params.append(p)
             optimizer = optim.SGD(params,
                                   lr=2e-4, weight_decay=0.0001, momentum=0.9)
+            print("Number of training params", utils.calculate_nb_params([teacher_net1,
+                                                                          vision_net, text_net]))
         else:
             optimizer = optim.SGD(teacher_net1.parameters(), lr=2e-4, weight_decay=0.0001, momentum=0.9)
 
@@ -172,12 +173,10 @@ def main():
                 with torch.no_grad():
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                 NEG_SAMPLES.enqueue(txt_vec)
-                # print(txt_vec)
-                # print()
                 continue
 
             else:
-                with torch.no_grad():
+                with torch.set_grad_enabled(MY_ARGS.end2end == 1):
                     img_feature = vision_net.forward(img)
                     txt_feature = text_net.forward(cap, mask)
 
@@ -186,17 +185,9 @@ def main():
                 neg_txt_vec = NEG_SAMPLES.get_tensor()
                 txt_vec = txt_vec.detach()
 
-                # print(neg_txt_vec.size(), img_vec.size())
-                # print(img_vec)
-                # print(txt_vec)
-                # print(NEG_SAMPLES.get_tensor(False))
-                # print()
-
                 loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                 running_loss.append(loss.item())
                 loss.backward()
-
-                # torch.nn.utils.clip_grad_norm_(parameters=teacher_net1.parameters(), max_norm=1.0)
 
                 # update encoder 1
                 optimizer.step()
@@ -210,7 +201,7 @@ def main():
                 with torch.no_grad():
                     img_vec = teacher_net1.forward(img_feature)
                     txt_vec = teacher_net2.forward(txt_feature)
-                _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
+                    _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
                 running_similarity.append(avg_similarity)
                 NEG_SAMPLES.enqueue(txt_vec)
                 NEG_SAMPLES.dequeue(BATCH_SIZE)

@@ -32,7 +32,7 @@ class TeacherNet2(nn.Module):
 class TeacherNet3query(nn.Module):
     def __init__(self):
         super(TeacherNet3query, self).__init__()
-        self.linear0 = nn.Linear(in_features=2048, out_features=768)
+        self.linear0 = nn.Linear(in_features=512, out_features=768)
         self.linear1 = nn.Linear(in_features=768, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
         self.linear3 = nn.Linear(in_features=4096, out_features=100)

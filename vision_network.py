@@ -24,7 +24,7 @@ def forward_layer(self, y):
 
 class VisionNet:
     def __init__(self, dev="cpu"):
-        self.model = torchvision.models.resnext101_32x8d(pretrained=True)
+        self.model = torchvision.models.resnet50(pretrained=True)
         self.model.forward_layer = types.MethodType(forward_layer, self.model)
         self.model.to(dev)
 

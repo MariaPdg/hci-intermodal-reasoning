@@ -191,6 +191,15 @@ def read_relevant_images():
         pickle.dump(onlyfiles, fp)
 
 
+def calculate_nb_params(models):
+    res = 0
+    for model in models:
+        model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+        params = sum([np.prod(p.size()) for p in model_parameters])
+        res += params
+    return res
+
+
 if __name__ == "__main__":
     cache_data("train", -1)
     cache_data("val", -1)
