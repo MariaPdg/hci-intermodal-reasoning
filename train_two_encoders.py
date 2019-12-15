@@ -16,6 +16,7 @@ import torchvision.datasets as datasets
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from knockknock import slack_sender
+from datetime import datetime
 
 
 def momentum_update(model_q, model_k, beta=0.999):
@@ -28,11 +29,13 @@ def momentum_update(model_q, model_k, beta=0.999):
 
 
 def main():
-    WRITER = SummaryWriter("logs")
+    now = datetime.now()
+    logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
+    WRITER = SummaryWriter(logdir)
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
     PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
-    PARSER.add_argument("--batchsize", help="batch size", default=128, type=int)
+    PARSER.add_argument("--batchsize", help="batch size", default=64, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
@@ -118,7 +121,7 @@ def main():
     elif MY_ARGS.optim == 2:
         optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
 
-    lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150, 200], gamma=0.1)
+    # lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150, 200], gamma=0.1)
 
     print("Start to train")
     train_losses = []
@@ -128,24 +131,26 @@ def main():
     val_accs = []
     val_sim = []
     NEG_SAMPLES = teacher_network.CustomedQueue(256)
-    
+
     train_loader = torch.utils.data.DataLoader(
-                datasets.ImageFolder("dataset/images/train", transforms.Compose([
-                    transforms.RandomResizedCrop(224),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225]),
-                ])),
-                batch_size=128, shuffle=False,
-                num_workers=2, pin_memory=False)
-    
+        datasets.ImageFolder("dataset/images/train", transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])),
+        batch_size=128, shuffle=False,
+        num_workers=2, pin_memory=False)
+
     for epoch in range(NB_EPOCHS):
         """
         Training
         """
         running_loss = []
         running_similarity = []
+        running_enc1_var = []
+        running_enc2_var = []
         running_corrects = 0.0
         total_samples = 0
         teacher_net1.train()
@@ -192,7 +197,7 @@ def main():
                 # update encoder 1
                 optimizer.step()
                 optimizer.zero_grad()
-                lr_scheduler.step()
+                # lr_scheduler.step(epoch)
 
                 # update encoder 2
                 momentum_update(teacher_net1, teacher_net2)
@@ -202,7 +207,10 @@ def main():
                     img_vec = teacher_net1.forward(img_feature)
                     txt_vec = teacher_net2.forward(txt_feature)
                     _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
+                    enc1_var, enc2_var = torch.var(img_vec).item(), torch.var(txt_vec).item()
                 running_similarity.append(avg_similarity)
+                running_enc1_var.append(enc1_var)
+                running_enc2_var.append(enc2_var)
                 NEG_SAMPLES.enqueue(txt_vec)
                 NEG_SAMPLES.dequeue(BATCH_SIZE)
 
@@ -222,6 +230,8 @@ def main():
         WRITER.add_scalar('Loss/train', np.average(running_loss), epoch)
         WRITER.add_scalar('Accuracy/train', float(running_corrects / total_samples), epoch)
         WRITER.add_scalar('Similarity/train', np.average(running_similarity), epoch)
+        WRITER.add_scalar('Var1/train', np.average(running_enc1_var), epoch)
+        WRITER.add_scalar('Var2/train', np.average(running_enc2_var), epoch)
 
         """
         Validating
@@ -230,6 +240,8 @@ def main():
         running_corrects = 0.0
         total_samples = 0
         running_similarity = []
+        running_enc1_var = []
+        running_enc2_var = []
         teacher_net1.eval()
         teacher_net2.eval()
         if MY_ARGS.end2end == 1:
@@ -248,16 +260,12 @@ def main():
                     img_vec = teacher_net1.forward(vision_net.forward(img))
                     txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
                     neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
-
-                    # print(neg_txt_vec.size())
-                    # print(img_vec)
-                    # print(txt_vec)
-                    # print(VAL_NEG_SAMPLES.get_tensor(False))
-                    # print()
-
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                     running_loss.append(loss.item())
                     _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
+                    enc1_var, enc2_var = torch.var(img_vec).item(), torch.var(txt_vec).item()
+                    running_enc1_var.append(enc1_var)
+                    running_enc2_var.append(enc2_var)
                     running_similarity.append(avg_similarity)
                     VAL_NEG_SAMPLES.enqueue(txt_vec)
                     VAL_NEG_SAMPLES.dequeue(BATCH_SIZE)
@@ -277,6 +285,8 @@ def main():
         WRITER.add_scalar('Loss/val', np.average(running_loss), epoch)
         WRITER.add_scalar('Accuracy/val', float(running_corrects / total_samples), epoch)
         WRITER.add_scalar('Similarity/val', np.average(running_similarity), epoch)
+        WRITER.add_scalar('Var1/val', np.average(running_enc1_var), epoch)
+        WRITER.add_scalar('Var2/val', np.average(running_enc2_var), epoch)
 
         start_time3 = time.time()
         LOGGER.error("Training took %.3f (aug: %.3f, compute: %.3f)" % (start_time3-start_time,
@@ -284,9 +294,10 @@ def main():
                                                                         start_time3-start_time2))
 
     if MY_ARGS.cache == 1:
-        model_name = "%d" % running_corrects
-        torch.save(teacher_net1.state_dict(), "models/enc1-%s-norm" % model_name)
-        torch.save(teacher_net2.state_dict(), "models/enc2-%s-norm" % model_name)
+        torch.save(teacher_net1.state_dict(), "models/enc1-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(teacher_net2.state_dict(), "models/enc2-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(vision_net.model.state_dict(), "models/enc1-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(text_net.model.state_dict(), "models/enc2-%s" % now.strftime("%Y%m%d-%H%M%S"))
 
     WRITER.close()
 

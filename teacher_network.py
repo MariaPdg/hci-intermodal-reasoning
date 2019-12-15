@@ -32,7 +32,7 @@ class TeacherNet2(nn.Module):
 class TeacherNet3query(nn.Module):
     def __init__(self):
         super(TeacherNet3query, self).__init__()
-        self.linear0 = nn.Linear(in_features=512, out_features=768)
+        self.linear0 = nn.Linear(in_features=2048, out_features=768)
         self.linear1 = nn.Linear(in_features=768, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
         self.linear3 = nn.Linear(in_features=4096, out_features=100)
@@ -65,7 +65,7 @@ class TeacherNet3key(nn.Module):
         out = F.leaky_relu(self.linear2(out))
         out = self.dropout2(out)
         out = self.linear3(out)
-        # out = F.normalize(out)
+        out = F.normalize(out)
         return out
 
 
@@ -152,8 +152,6 @@ class ContrastiveLoss(nn.Module):
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         labels = torch.zeros(N, dtype=torch.long, device=self.dev)
         loss = self.loss_fn(logits/self.temp, labels)
-        # print("loss", loss)
-        # print("inside forward", logits.size())
         return loss
 
 
@@ -187,37 +185,7 @@ class CustomedQueue:
             return self.neg_keys
 
 
-class TeacherNet3key2(nn.Module):
-    def __init__(self):
-        super(TeacherNet3key2, self).__init__()
-        self.linear1 = nn.Linear(in_features=768, out_features=10)
-        self.linear2 = nn.Linear(in_features=10, out_features=10)
-        self.linear3 = nn.Linear(in_features=10, out_features=10)
-        self.dropout1 = nn.Dropout(0.3)
-        self.dropout2 = nn.Dropout(0.5)
-
-    def forward(self, inputs):
-        out = F.leaky_relu(self.linear1(inputs))
-        out = self.dropout1(out)
-        print(out)
-        print(out.size())
-        out = F.leaky_relu(self.linear2(out))
-        out = self.dropout2(out)
-        out = self.linear3(out)
-        out = F.normalize(out)
-        return out
-
-
 if __name__ == "__main__":
-    e2 = TeacherNet3key2()
-    u1 = torch.rand(1, 768)
-    e2.eval()
-    e2(u1)
-    e2(u1)
-
-
-
-
     # from torch.utils.data import TensorDataset, DataLoader, RandomSampler
     #
     # train_img = torch.rand((100, 3))
