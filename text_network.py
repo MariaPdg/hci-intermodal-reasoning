@@ -13,9 +13,9 @@ def forward_layer(self, input_ids, attention_mask=None, head_mask=None):
                                         attention_mask=attention_mask,
                                         head_mask=head_mask)
     hidden_state = distilbert_output[0]  # (bs, seq_len, dim)
-    pooled_output = hidden_state[:, 0]  # (bs, dim)
-    # pooled_output = self.linear_mat(pooled_output)
-    return pooled_output
+    hidden_state = hidden_state.permute(1, 0, 2)
+    pooled_output, hidden_cell = self.lstm(hidden_state)
+    return hidden_cell[0].squeeze()
 
 
 class TextNet:
@@ -26,7 +26,8 @@ class TextNet:
         self.tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
         self.model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", config=config)
         self.model.forward_layer = types.MethodType(forward_layer, self.model)
-        self.model.linear_mat = nn.Linear(in_features=768, out_features=10)
+        self.model.lstm = nn.LSTM(768, 768)
+
         self.model.to(dev)
 
     def forward(self, indices, masks):
@@ -44,17 +45,8 @@ if __name__ == "__main__":
     val_cap = torch.load("cached_data/val_cap")
     val_mask = torch.load("cached_data/val_mask")
     text_net = TextNet("cpu")
-    print(text_net.forward(val_cap[[0, 0]], val_mask[[0, 0]])[0])
+    text_net.forward(val_cap[[0, 0]], val_mask[[0, 0]])
     print()
-    print(text_net.forward(val_cap[[0, 0]], val_mask[[0, 0]])[0])
-    print()
-
-    text_net.model.eval()
-    print(text_net.forward(val_cap[[0, 0]], val_mask[[0, 0]])[0])
-    print()
-
-    text_net.no_dropout = True
-    print(text_net.forward(val_cap[[0, 0]], val_mask[[0, 0]])[0])
 
 
         
