@@ -14,3 +14,5 @@ cap_faulty
 img_vec_faulty
 txt_vec_faulty
 logs/
+train_main.py
+
