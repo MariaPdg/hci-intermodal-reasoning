@@ -34,7 +34,7 @@ def main():
     WRITER = SummaryWriter(logdir)
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=250, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=64, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
@@ -207,7 +207,8 @@ def main():
                     img_vec = teacher_net1.forward(img_feature)
                     txt_vec = teacher_net2.forward(txt_feature)
                     _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
-                    enc1_var, enc2_var = torch.var(img_vec).item(), torch.var(txt_vec).item()
+                    enc1_var, enc2_var = torch.mean(torch.var(img_vec, dim=0)).item(), \
+                                         torch.mean(torch.var(txt_vec, dim=0)).item()
                 running_similarity.append(avg_similarity)
                 running_enc1_var.append(enc1_var)
                 running_enc2_var.append(enc2_var)
@@ -263,7 +264,8 @@ def main():
                     loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
                     running_loss.append(loss.item())
                     _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
-                    enc1_var, enc2_var = torch.var(img_vec).item(), torch.var(txt_vec).item()
+                    enc1_var, enc2_var = torch.mean(torch.var(img_vec, dim=0)).item(),\
+                                         torch.mean(torch.var(txt_vec, dim=0)).item()
                     running_enc1_var.append(enc1_var)
                     running_enc2_var.append(enc2_var)
                     running_similarity.append(avg_similarity)
@@ -294,8 +296,8 @@ def main():
                                                                         start_time3-start_time2))
 
     if MY_ARGS.cache == 1:
-        torch.save(teacher_net1.state_dict(), "models/enc1-%s" % now.strftime("%Y%m%d-%H%M%S"))
-        torch.save(teacher_net2.state_dict(), "models/enc2-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(teacher_net1.state_dict(), "models/enc1-t1-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(teacher_net2.state_dict(), "models/enc2-t2-%s" % now.strftime("%Y%m%d-%H%M%S"))
         torch.save(vision_net.model.state_dict(), "models/enc1-%s" % now.strftime("%Y%m%d-%H%M%S"))
         torch.save(text_net.model.state_dict(), "models/enc2-%s" % now.strftime("%Y%m%d-%H%M%S"))
 

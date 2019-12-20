@@ -155,6 +155,47 @@ class ContrastiveLoss(nn.Module):
         return loss
 
 
+class ContrastiveLossInBatch(nn.Module):
+    def __init__(self, temp, dev):
+        super(ContrastiveLossInBatch, self).__init__()
+        self.temp = 0.07
+        self.dev = dev
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+
+    def return_logits(self, q, k):
+        N = q.size(0)
+        C = q.size(1)
+        mask = torch.eye(N)
+        l_neg = None
+        for idx in range(N):
+            negative_sample_ids = [j for j in range(N) if mask[idx][j] < 1]
+            if l_neg is None:
+                l_neg = torch.mv(k[negative_sample_ids, :], q[idx]).view(1, N-1)
+            else:
+                l_neg = torch.cat([l_neg, torch.mv(k[negative_sample_ids, :], q[idx]).view(1, N-1)], dim=0)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        sim_diff = l_pos.squeeze() - torch.max(l_neg, dim=1).values
+        return logits, torch.argmax(logits, dim=1), torch.mean(sim_diff).item()
+
+    def forward(self, q, k):
+        N = q.size(0)
+        C = q.size(1)
+        mask = torch.eye(N)
+        l_neg = None
+        for idx in range(N):
+            negative_sample_ids = [j for j in range(N) if mask[idx][j] < 1]
+            if l_neg is None:
+                l_neg = torch.mv(k[negative_sample_ids, :], q[idx]).view(1, N-1)
+            else:
+                l_neg = torch.cat([l_neg, torch.mv(k[negative_sample_ids, :], q[idx]).view(1, N-1)], dim=0)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        labels = torch.zeros(N, dtype=torch.long, device=self.dev)
+        loss = self.loss_fn(logits/self.temp, labels)
+        return loss
+
+
 class CustomedQueue:
     def __init__(self, max_size=1024):
         self.neg_keys = []
@@ -207,14 +248,15 @@ if __name__ == "__main__":
     #         q.enqueue(batch)
     #     q.dequeue(2)
 
-    u1 = torch.rand((4, 3))
-    u2 = torch.rand((4, 3))
+    u1 = torch.rand((64, 100))
+    u2 = torch.rand((64, 100))
     du = torch.rand((6, 3))
-    loss = ContrastiveLoss(1, "cpu")
+    loss = ContrastiveLossInBatch(1, "cpu")
 
     print(u1)
     print(u2)
-    loss.return_logits(u1, u2, du)
+    loss(u1, u2)
+    # loss.return_logits(u1, u2, du)
 
     # crossent = torch.nn.CrossEntropyLoss()
     # inp = torch.rand((4, 3), requires_grad=True)
