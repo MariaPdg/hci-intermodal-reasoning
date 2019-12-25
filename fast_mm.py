@@ -11,11 +11,8 @@ import matplotlib.pyplot as plt
 def fast_mm(matrix_1, matrix_2, device ="cuda: 1"):
     size_1 = matrix_1.size()[0]
     size_2 = matrix_1.size()[1]
-
-    matrix_1.to(device)
-    matrix_2.to(device)
     
-    return torch.matmul(matrix_1, matrix_2.T).reshape(size_1*size_1, 1)
+    return torch.matmul(matrix_1, matrix_2.T)
     
 
 
@@ -54,8 +51,8 @@ if __name__ == "__main__":
     error = []
     coeffs = [1, 1, 1, 1, 3, 5, 7, 9, 11, 100, 200, 300]
     for coeff in coeffs:
-        matrix_1 = torch.rand(50, 100)*coeff
-        matrix_2 = torch.rand(50, 100)*coeff
+        matrix_1 = torch.rand(50, 100, dtype=torch.float64)*coeff
+        matrix_2 = torch.rand(50, 100, dtype=torch.float64)*coeff
         batch_size = 50
         device = "cpu"
 
@@ -63,7 +60,7 @@ if __name__ == "__main__":
         avg_err = []
         for du1 in range(matrix_1.size(0)):
             for du2 in range(matrix_2.size(0)):
-                a1 = res1[vector_idx(du1, du2, batch_size)]
+                a1 = res1[du1][du2]
                 a2 = torch.matmul(matrix_1[du1].view(1, 100), matrix_2[du2].view(100, 1))
                 avg_err.append(math.fabs(a1.item() - a2.item()))
         error.append(np.average(avg_err))

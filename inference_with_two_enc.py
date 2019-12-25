@@ -11,9 +11,9 @@ import sys
 
 from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 
-val_img = torch.load("cached_data/train_img")
-val_cap = torch.load("cached_data/train_cap")
-val_mask = torch.load("cached_data/train_mask")
+val_img = torch.load("cached_data/val_img")
+val_cap = torch.load("cached_data/val_cap")
+val_mask = torch.load("cached_data/val_mask")
 
 print("Loaded val data", val_img.size(), val_cap.size(), val_mask.size())
 
@@ -28,16 +28,16 @@ device = "cuda:1"
 text_net = text_network.TextNet(device)
 vision_net = vision_network.VisionNet(device)
 
-teacher_net1 = teacher_network.TeacherNet()
-teacher_net2 = teacher_network.TeacherNet()
+teacher_net1 = teacher_network.TeacherNet3query()
+teacher_net2 = teacher_network.TeacherNet3key()
 teacher_net1.to(device)
 teacher_net2.to(device)
 
 
-teacher_net1.load_state_dict(torch.load("models/enc1-8296-norm"))
-teacher_net2.load_state_dict(torch.load("models/enc2-8296-norm"))
-vision_net.model.load_state_dict(torch.load("models/enc1-8296-norm"))
-text_net.model.load_state_dict(torch.load("models/enc2-8296-norm"))
+teacher_net1.load_state_dict(torch.load("models/enc1-t1-20191219-111227"))
+teacher_net2.load_state_dict(torch.load("models/enc2-t2-20191219-111227"))
+vision_net.model.load_state_dict(torch.load("models/enc1-20191219-111227"))
+text_net.model.load_state_dict(torch.load("models/enc2-20191219-111227"))
 
 text_net.model.eval()
 vision_net.model.eval()
@@ -58,3 +58,20 @@ with torch.no_grad():
 
 img_vecs = torch.cat(img_vecs, dim=0)
 txt_vecs = torch.cat(txt_vecs, dim=0)
+
+correct = 0
+correctn = 0
+
+count = 0
+for du1 in range(img_vecs.size(0)):
+    preds = []
+    count += 1
+    for du2 in range(img_vecs.size(0)):
+        preds.append(torch.matmul(img_vecs[du1].view(1, 100), txt_vecs[du2].view(100, 1)).item())
+    if np.argmax(preds) == du1:
+        correct += 1
+    if du1 in np.argsort(preds)[-64:]:
+        correctn += 1
+    print("done %d: %d, %d/%d" % (count, correct, correctn, img_vecs.size(0)))
+print("Top 1 accuracy: %.3f (%d/%d)" % (float(correct)/img_vecs.size(0), correct, img_vecs.size(0)))
+print("Top n accuracy: %.3f (%d/%d)" % (float(correctn)/img_vecs.size(0), correctn, img_vecs.size(0)))
