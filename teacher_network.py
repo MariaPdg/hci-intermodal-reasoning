@@ -3,32 +3,6 @@ import torch.nn.functional as F
 import torch
 
 
-class TeacherNet(nn.Module):
-    def __init__(self):
-        super(TeacherNet, self).__init__()
-        self.linear1 = nn.Linear(in_features=2048, out_features=4096)
-        self.linear2 = nn.Linear(in_features=4096, out_features=4096)
-        self.linear3 = nn.Linear(in_features=4096, out_features=100)
-
-    def forward(self, inputs):
-        out = F.leaky_relu(self.linear1(inputs))
-        out = F.leaky_relu(self.linear2(out))
-        out = F.leaky_relu(self.linear3(out))
-        out = F.normalize(out)
-        return out
-
-
-class TeacherNet2(nn.Module):
-    def __init__(self):
-        super(TeacherNet2, self).__init__()
-        self.linear1 = nn.Linear(in_features=2048, out_features=100)
-
-    def forward(self, inputs):
-        out = self.linear1(inputs)
-        out = F.normalize(out)
-        return out
-
-
 class TeacherNet3query(nn.Module):
     def __init__(self):
         super(TeacherNet3query, self).__init__()
@@ -36,6 +10,7 @@ class TeacherNet3query(nn.Module):
         self.linear1 = nn.Linear(in_features=768, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
         self.linear3 = nn.Linear(in_features=4096, out_features=100)
+        self.linear4 = nn.Linear(in_features=100, out_features=1)
         self.dropout1 = nn.Dropout(0.3)
         self.dropout2 = nn.Dropout(0.5)
 
@@ -47,7 +22,7 @@ class TeacherNet3query(nn.Module):
         out = self.dropout2(out)
         out = self.linear3(out)
         out = F.normalize(out)
-        return out
+        return out, F.normalize(self.linear4(out))
 
 
 class TeacherNet3key(nn.Module):
@@ -56,6 +31,7 @@ class TeacherNet3key(nn.Module):
         self.linear1 = nn.Linear(in_features=768, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
         self.linear3 = nn.Linear(in_features=4096, out_features=100)
+        self.linear4 = nn.Linear(in_features=100, out_features=1)
         self.dropout1 = nn.Dropout(0.3)
         self.dropout2 = nn.Dropout(0.5)
 
@@ -66,22 +42,7 @@ class TeacherNet3key(nn.Module):
         out = self.dropout2(out)
         out = self.linear3(out)
         out = F.normalize(out)
-        return out
-
-
-class TeacherNet4(nn.Module):
-    def __init__(self):
-        super(TeacherNet4, self).__init__()
-        self.linear1 = nn.Linear(in_features=2048, out_features=4096)
-        self.linear2 = nn.Linear(in_features=4096, out_features=4096)
-        self.linear3 = nn.Linear(in_features=4096, out_features=100)
-
-    def forward(self, inputs):
-        out = self.linear1(inputs)
-        out = self.linear2(out)
-        out = self.linear3(out)
-        out = F.normalize(out)
-        return out
+        return out, F.normalize(self.linear4(out))
 
 
 class RankingLossFunc(nn.Module):
@@ -196,6 +157,19 @@ class ContrastiveLossInBatch(nn.Module):
         return loss
 
 
+class IdentificationLossInBatch(nn.Module):
+    def __init__(self, dev="cpu"):
+        super(IdentificationLossInBatch, self).__init__()
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+        self.dev = dev
+
+    def forward(self, vectors):
+        logits = vectors.repeat(1, vectors.size(0)).T
+        labels = torch.arange(0, vectors.size(0), dtype=torch.long, device=self.dev)
+        loss = self.loss_fn(logits, labels)
+        return loss
+
+
 class CustomedQueue:
     def __init__(self, max_size=1024):
         self.neg_keys = []
@@ -227,50 +201,7 @@ class CustomedQueue:
 
 
 if __name__ == "__main__":
-    # from torch.utils.data import TensorDataset, DataLoader, RandomSampler
-    #
-    # train_img = torch.rand((100, 3))
-    # train_data = TensorDataset(train_img)
-    # train_sampler = RandomSampler(train_data)
-    # train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=2, num_workers=2)
-    # q = CustomedQueue(10)
-    # for step, batch in enumerate(train_dataloader):
-    #     batch = batch[0]
-    #     if q.empty():
-    #         q.enqueue(batch)
-    #         continue
-    #     else:
-    #         print("batch")
-    #         print(batch)
-    #         print("queue")
-    #         print(q.get_tensor(False), q.get_tensor(False).size(), q.size)
-    #         input()
-    #         q.enqueue(batch)
-    #     q.dequeue(2)
-
-    u1 = torch.rand((64, 100))
-    u2 = torch.rand((64, 100))
-    du = torch.rand((6, 3))
-    loss = ContrastiveLossInBatch(1, "cpu")
-
+    u1 = torch.rand((3, 1))
     print(u1)
-    print(u2)
-    loss(u1, u2)
-    # loss.return_logits(u1, u2, du)
-
-    # crossent = torch.nn.CrossEntropyLoss()
-    # inp = torch.rand((4, 3), requires_grad=True)
-    # print(inp)
-    # print()
-    # label = torch.zeros(4, dtype=torch.long)
-    # for i in range(5):
-    #     out = crossent(inp, label)
-    #     print("loss is", out.item())
-    #     out.backward()
-    #     with torch.no_grad():
-    #         inp -= inp.grad
-    #         out = crossent(inp, label)
-    #         print("loss is", out.item())
-    #         print(inp)
-    #         inp.grad.zero_()
-    #         print()
+    loss2 = IdentificationLossInBatch()
+    print(loss2(u1))
