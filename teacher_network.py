@@ -201,7 +201,41 @@ class CustomedQueue:
 
 
 if __name__ == "__main__":
-    u1 = torch.rand((3, 1))
-    print(u1)
-    loss2 = IdentificationLossInBatch()
-    print(loss2(u1))
+    from torch.utils.data import TensorDataset, DataLoader, RandomSampler
+    from datetime import datetime
+    from torch.utils.tensorboard import SummaryWriter
+
+    import torch.optim as optim
+    import numpy as np
+
+    now = datetime.now()
+    logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
+    WRITER = SummaryWriter(logdir)
+
+    model = TeacherNet3key()
+    id_loss = IdentificationLossInBatch()
+    inp = torch.rand((1000, 768))
+    params = []
+    for p in model.parameters():
+        params.append(p)
+    optimizer = optim.SGD(params, lr=0.1, weight_decay=0.0001, momentum=0.9)
+    train_data = TensorDataset(inp)
+    train_sampler = RandomSampler(train_data)
+    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=64, num_workers=2)
+
+    for epoch in range(100):
+        running_loss = []
+        running_var = []
+        for data in train_dataloader:
+            vec, id_vec = model(data[0])
+            loss1 = id_loss(id_vec)
+            loss1.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            var = torch.mean(torch.var(vec, dim=0)).item()
+            running_loss.append(loss1.item())
+            running_var.append(var)
+        print(np.average(running_loss), np.average(running_var))
+        WRITER.add_scalar('Loss', np.average(running_loss), epoch)
+        WRITER.add_scalar('Var', np.average(running_var), epoch)
