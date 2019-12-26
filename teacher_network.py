@@ -21,7 +21,7 @@ class TeacherNet3query(nn.Module):
         out = F.leaky_relu(self.linear2(out))
         out = self.dropout2(out)
         out = self.linear3(out)
-        out = F.normalize(out)
+        # out = F.normalize(out)
         return out, F.normalize(self.linear4(out))
 
 
@@ -41,7 +41,7 @@ class TeacherNet3key(nn.Module):
         out = F.leaky_relu(self.linear2(out))
         out = self.dropout2(out)
         out = self.linear3(out)
-        out = F.normalize(out)
+        # out = F.normalize(out)
         return out, F.normalize(self.linear4(out))
 
 

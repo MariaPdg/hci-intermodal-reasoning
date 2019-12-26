@@ -43,6 +43,7 @@ def main():
     PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
     PARSER.add_argument("--aug", help="if augment training", default=1, type=int)
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
+    PARSER.add_argument("--idloss", help="if train with ID loss", default=0, type=int)
 
     MY_ARGS = PARSER.parse_args()
 
@@ -183,8 +184,10 @@ def main():
             running_loss.append(loss1.item())
             id_loss = identification_loss(img_id_vec) + identification_loss(txt_id_vec)
             running_loss_id.append(id_loss.item())
-            total_loss = loss1 + id_loss
-            total_loss /= BATCH_SIZE
+            if MY_ARGS.idloss == 1:
+                total_loss = loss1 + id_loss
+            else:
+                total_loss = loss1
             running_loss_total.append(total_loss.item())
 
             total_loss.backward()
@@ -253,8 +256,10 @@ def main():
                 running_loss.append(loss1.item())
                 id_loss = identification_loss(img_id_vec) + identification_loss(txt_id_vec)
                 running_loss_id.append(id_loss.item())
-                total_loss = loss1 + id_loss
-                total_loss /= BATCH_SIZE
+                if MY_ARGS.idloss == 1:
+                    total_loss = loss1 + id_loss
+                else:
+                    total_loss = loss1
                 running_loss_total.append(total_loss.item())
 
                 _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
