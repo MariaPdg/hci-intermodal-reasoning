@@ -24,7 +24,7 @@ valid_data = TensorDataset(val_img, val_cap, val_mask)
 valid_sampler = SequentialSampler(valid_data)
 valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE * 2, num_workers=2)
 
-device = "cuda:1"
+device = "cuda:0"
 text_net = text_network.TextNet(device)
 vision_net = vision_network.VisionNet(device)
 
@@ -58,6 +58,7 @@ with torch.no_grad():
 
 img_vecs = torch.cat(img_vecs, dim=0)
 txt_vecs = torch.cat(txt_vecs, dim=0)
+<<<<<<< HEAD
 
 correct = 0
 correctn = 0
@@ -75,3 +76,5 @@ for du1 in range(img_vecs.size(0)):
     print("done %d: %d, %d/%d" % (count, correct, correctn, img_vecs.size(0)))
 print("Top 1 accuracy: %.3f (%d/%d)" % (float(correct)/img_vecs.size(0), correct, img_vecs.size(0)))
 print("Top n accuracy: %.3f (%d/%d)" % (float(correctn)/img_vecs.size(0), correctn, img_vecs.size(0)))
+=======
+>>>>>>> 23d262f

@@ -10,7 +10,6 @@ class TeacherNet3query(nn.Module):
         self.linear1 = nn.Linear(in_features=768, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
         self.linear3 = nn.Linear(in_features=4096, out_features=100)
-        self.linear4 = nn.Linear(in_features=100, out_features=1)
         self.dropout1 = nn.Dropout(0.3)
         self.dropout2 = nn.Dropout(0.5)
 
@@ -21,8 +20,13 @@ class TeacherNet3query(nn.Module):
         out = F.leaky_relu(self.linear2(out))
         out = self.dropout2(out)
         out = self.linear3(out)
+<<<<<<< HEAD
         # out = F.normalize(out)
         return out, F.normalize(self.linear4(out))
+=======
+        out = F.normalize(out)
+        return out
+>>>>>>> 23d262f
 
 
 class TeacherNet3key(nn.Module):
@@ -31,7 +35,6 @@ class TeacherNet3key(nn.Module):
         self.linear1 = nn.Linear(in_features=768, out_features=4096)
         self.linear2 = nn.Linear(in_features=4096, out_features=4096)
         self.linear3 = nn.Linear(in_features=4096, out_features=100)
-        self.linear4 = nn.Linear(in_features=100, out_features=1)
         self.dropout1 = nn.Dropout(0.3)
         self.dropout2 = nn.Dropout(0.5)
 
@@ -41,8 +44,13 @@ class TeacherNet3key(nn.Module):
         out = F.leaky_relu(self.linear2(out))
         out = self.dropout2(out)
         out = self.linear3(out)
+<<<<<<< HEAD
         # out = F.normalize(out)
         return out, F.normalize(self.linear4(out))
+=======
+        out = F.normalize(out)
+        return out
+>>>>>>> 23d262f
 
 
 class RankingLossFunc(nn.Module):
@@ -163,11 +171,37 @@ class IdentificationLossInBatch(nn.Module):
         self.loss_fn = torch.nn.CrossEntropyLoss()
         self.dev = dev
 
-    def forward(self, vectors):
-        logits = vectors.repeat(1, vectors.size(0)).T
-        labels = torch.arange(0, vectors.size(0), dtype=torch.long, device=self.dev)
-        loss = self.loss_fn(logits, labels)
+    def forward(self, q):
+        N = q.size(0)
+        C = q.size(1)
+        mask = torch.eye(N)
+        l_neg = None
+        for idx in range(N):
+            negative_sample_ids = [j for j in range(N) if mask[idx][j] < 1]
+            if l_neg is None:
+                l_neg = torch.mv(q[negative_sample_ids, :], q[idx]).view(1, N-1)
+            else:
+                l_neg = torch.cat([l_neg, torch.mv(q[negative_sample_ids, :], q[idx]).view(1, N-1)], dim=0)
+        l_pos = torch.bmm(q.view(N, 1, C), q.view(N, C, 1))
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        labels = torch.zeros(N, dtype=torch.long, device=self.dev)
+        loss = self.loss_fn(logits/0.07, labels)
         return loss
+
+    def compute_diff(self, q):
+        N = q.size(0)
+        C = q.size(1)
+        mask = torch.eye(N)
+        l_neg = None
+        for idx in range(N):
+            negative_sample_ids = [j for j in range(N) if mask[idx][j] < 1]
+            if l_neg is None:
+                l_neg = torch.mv(q[negative_sample_ids, :], q[idx]).view(1, N - 1)
+            else:
+                l_neg = torch.cat([l_neg, torch.mv(q[negative_sample_ids, :], q[idx]).view(1, N - 1)], dim=0)
+        l_pos = torch.bmm(q.view(N, 1, C), q.view(N, C, 1))
+        sim_diff = l_pos.squeeze() - torch.max(l_neg, dim=1).values
+        return torch.mean(sim_diff).item()
 
 
 class CustomedQueue:
