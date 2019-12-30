@@ -43,6 +43,8 @@ def main():
     PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
     PARSER.add_argument("--aug", help="if augment training", default=1, type=int)
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
+    PARSER.add_argument("--idloss", help="if training with id loss", default=1, type=int)
+
 
     MY_ARGS = PARSER.parse_args()
 
@@ -175,12 +177,13 @@ def main():
             img_feature = vision_net.forward(img)
             txt_feature = text_net.forward(cap, mask)
 
-            img_vec, img_id_vec = teacher_net1.forward(img_feature)
-            txt_vec, txt_id_vec = teacher_net2.forward(txt_feature)
+            img_vec = teacher_net1.forward(img_feature)
+            txt_vec = teacher_net2.forward(txt_feature)
 
             loss = ranking_loss(img_vec, txt_vec)
             running_loss.append(loss.item())
-            loss += identification_loss(img_id_vec) + identification_loss(txt_id_vec)
+            if MY_ARGS.idloss:
+                loss += identification_loss(img_vec) + identification_loss(txt_vec)
             running_loss_total.append(loss.item())
             loss.backward()
 
@@ -193,11 +196,10 @@ def main():
             text_net.model.eval()
             vision_net.model.eval()
 
-            img_vec, _ = teacher_net1.forward(img_feature)
-            txt_vec, _ = teacher_net2.forward(txt_feature)
+            img_vec = teacher_net1.forward(img_feature)
+            txt_vec = teacher_net2.forward(txt_feature)
             _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
-            enc1_var, enc2_var = torch.mean(torch.var(img_vec, dim=0)).item(), \
-                                 torch.mean(torch.var(txt_vec, dim=0)).item()
+            enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(txt_vec)
             running_similarity.append(avg_similarity)
             running_enc1_var.append(enc1_var)
             running_enc2_var.append(enc2_var)
@@ -239,16 +241,17 @@ def main():
         with torch.no_grad():
             for step, batch in enumerate(valid_dataloader):
                 img, cap, mask = tuple(t.to(device) for t in batch)
-                img_vec, img_id_vec = teacher_net1.forward(vision_net.forward(img))
-                txt_vec, txt_id_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                img_vec = teacher_net1.forward(vision_net.forward(img))
+                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
 
                 loss = ranking_loss(img_vec, txt_vec)
                 running_loss.append(loss.item())
-                loss += identification_loss(img_id_vec) + identification_loss(txt_id_vec)
+                loss += identification_loss(img_vec) + identification_loss(txt_vec)
                 running_loss_total.append(loss.item())
                 _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
-                enc1_var, enc2_var = torch.mean(torch.var(img_vec, dim=0)).item(), \
-                                     torch.mean(torch.var(txt_vec, dim=0)).item()
+                enc1_var = identification_loss.compute_diff(img_vec)
+                enc2_var = identification_loss.compute_diff(txt_vec)
+
                 running_enc1_var.append(enc1_var)
                 running_enc2_var.append(enc2_var)
                 running_similarity.append(avg_similarity)

@@ -24,7 +24,7 @@ valid_data = TensorDataset(val_img, val_cap, val_mask)
 valid_sampler = SequentialSampler(valid_data)
 valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE * 2, num_workers=2)
 
-device = "cuda:1"
+device = "cuda:0"
 text_net = text_network.TextNet(device)
 vision_net = vision_network.VisionNet(device)
 
