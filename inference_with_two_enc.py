@@ -33,11 +33,11 @@ teacher_net2 = teacher_network.TeacherNet3key()
 teacher_net1.to(device)
 teacher_net2.to(device)
 
-
-teacher_net1.load_state_dict(torch.load("models/enc1-t1-20191219-111227"))
-teacher_net2.load_state_dict(torch.load("models/enc2-t2-20191219-111227"))
-vision_net.model.load_state_dict(torch.load("models/enc1-20191219-111227"))
-text_net.model.load_state_dict(torch.load("models/enc2-20191219-111227"))
+timeline = "20191219-111227"
+teacher_net1.load_state_dict(torch.load("models/enc1-t1-%s" % timeline))
+teacher_net2.load_state_dict(torch.load("models/enc2-t2-%s" % timeline))
+vision_net.model.load_state_dict(torch.load("models/enc1-%s" % timeline))
+text_net.model.load_state_dict(torch.load("models/enc2-%s" % timeline))
 
 text_net.model.eval()
 vision_net.model.eval()
@@ -58,7 +58,6 @@ with torch.no_grad():
 
 img_vecs = torch.cat(img_vecs, dim=0)
 txt_vecs = torch.cat(txt_vecs, dim=0)
-<<<<<<< HEAD
 
 correct = 0
 correctn = 0
@@ -76,5 +75,3 @@ for du1 in range(img_vecs.size(0)):
     print("done %d: %d, %d/%d" % (count, correct, correctn, img_vecs.size(0)))
 print("Top 1 accuracy: %.3f (%d/%d)" % (float(correct)/img_vecs.size(0), correct, img_vecs.size(0)))
 print("Top n accuracy: %.3f (%d/%d)" % (float(correctn)/img_vecs.size(0), correctn, img_vecs.size(0)))
-=======
->>>>>>> 23d262f

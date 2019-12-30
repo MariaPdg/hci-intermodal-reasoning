@@ -43,12 +43,8 @@ def main():
     PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
     PARSER.add_argument("--aug", help="if augment training", default=1, type=int)
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
-<<<<<<< HEAD
-    PARSER.add_argument("--idloss", help="if train with ID loss", default=0, type=int)
-=======
     PARSER.add_argument("--idloss", help="if training with id loss", default=1, type=int)
 
->>>>>>> 23d262f
 
     MY_ARGS = PARSER.parse_args()
 
@@ -146,7 +142,6 @@ def main():
         Training
         """
         running_loss = []
-        running_loss_id = []
         running_loss_total = []
         running_similarity = []
         running_enc1_var = []
@@ -185,26 +180,12 @@ def main():
             img_vec = teacher_net1.forward(img_feature)
             txt_vec = teacher_net2.forward(txt_feature)
 
-<<<<<<< HEAD
-            loss1 = ranking_loss(img_vec, txt_vec)
-            running_loss.append(loss1.item())
-            id_loss = identification_loss(img_id_vec) + identification_loss(txt_id_vec)
-            running_loss_id.append(id_loss.item())
-            if MY_ARGS.idloss == 1:
-                total_loss = loss1 + id_loss
-            else:
-                total_loss = loss1
-            running_loss_total.append(total_loss.item())
-
-            total_loss.backward()
-=======
             loss = ranking_loss(img_vec, txt_vec)
             running_loss.append(loss.item())
             if MY_ARGS.idloss:
                 loss += identification_loss(img_vec) + identification_loss(txt_vec)
             running_loss_total.append(loss.item())
             loss.backward()
->>>>>>> 23d262f
 
             # update encoder 1 and 2
             optimizer.step()
@@ -237,18 +218,17 @@ def main():
         train_accs.append(float(running_corrects / total_samples))
         train_sim.append(np.average(running_similarity))
         WRITER.add_scalar('Loss/train', np.average(running_loss), epoch)
-        WRITER.add_scalar('IdLoss/train', np.average(running_loss_id), epoch)
         WRITER.add_scalar('TotalLoss/train', np.average(running_loss_total), epoch)
         WRITER.add_scalar('Accuracy/train', float(running_corrects / total_samples), epoch)
         WRITER.add_scalar('Similarity/train', np.average(running_similarity), epoch)
         WRITER.add_scalar('Var1/train', np.average(running_enc1_var), epoch)
         WRITER.add_scalar('Var2/train', np.average(running_enc2_var), epoch)
+        print(np.average(running_enc1_var), np.average(running_enc2_var))
 
         """
         Validating
         """
         running_loss = []
-        running_loss_id = []
         running_loss_total = []
         running_corrects = 0.0
         total_samples = 0
@@ -265,23 +245,10 @@ def main():
                 img_vec = teacher_net1.forward(vision_net.forward(img))
                 txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
 
-<<<<<<< HEAD
-                loss1 = ranking_loss(img_vec, txt_vec)
-                running_loss.append(loss1.item())
-                id_loss = identification_loss(img_id_vec) + identification_loss(txt_id_vec)
-                running_loss_id.append(id_loss.item())
-                if MY_ARGS.idloss == 1:
-                    total_loss = loss1 + id_loss
-                else:
-                    total_loss = loss1
-                running_loss_total.append(total_loss.item())
-
-=======
                 loss = ranking_loss(img_vec, txt_vec)
                 running_loss.append(loss.item())
                 loss += identification_loss(img_vec) + identification_loss(txt_vec)
                 running_loss_total.append(loss.item())
->>>>>>> 23d262f
                 _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
                 enc1_var = identification_loss.compute_diff(img_vec)
                 enc2_var = identification_loss.compute_diff(txt_vec)
@@ -303,7 +270,6 @@ def main():
         val_accs.append(float(running_corrects / total_samples))
         val_sim.append(np.average(running_similarity))
         WRITER.add_scalar('Loss/val', np.average(running_loss), epoch)
-        WRITER.add_scalar('IdLoss/val', np.average(running_loss_id), epoch)
         WRITER.add_scalar('TotalLoss/val', np.average(running_loss_total), epoch)
         WRITER.add_scalar('Accuracy/val', float(running_corrects / total_samples), epoch)
         WRITER.add_scalar('Similarity/val', np.average(running_similarity), epoch)
