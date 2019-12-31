@@ -28,7 +28,7 @@ def momentum_update(model_q, model_k, beta=0.999):
     model_k.load_state_dict(param_k)
 
 
-def main():
+def main(idloss_override=None):
     now = datetime.now()
     logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
     WRITER = SummaryWriter(logdir)
@@ -45,8 +45,9 @@ def main():
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
     PARSER.add_argument("--idloss", help="if training with id loss", default=1, type=int)
 
-
     MY_ARGS = PARSER.parse_args()
+    if idloss_override is not None:
+        MY_ARGS.idloss = idloss_override
 
     LOGGER.info("=============================================================")
     print(MY_ARGS)
@@ -131,11 +132,21 @@ def main():
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225]),
         ])),
         batch_size=128, shuffle=False,
         num_workers=2, pin_memory=False)
+
+    # augment training images
+    if MY_ARGS.aug == 1:
+        train_img_aug = []
+        for step, batch in enumerate(train_loader):
+            if step == 0:
+                train_img_aug = batch[0]
+            else:
+                train_img_aug = torch.cat([train_img_aug, batch[0]], dim=0)
+        train_data = TensorDataset(train_img_aug, train_cap, train_mask)
+        train_sampler = RandomSampler(train_data)
+        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
 
     for epoch in range(NB_EPOCHS):
         """
@@ -153,19 +164,6 @@ def main():
         text_net.model.train()
         vision_net.model.train()
         start_time = time.time()
-
-        # augment training images
-        if MY_ARGS.aug == 1:
-            train_img_aug = []
-            for step, batch in enumerate(train_loader):
-                if step == 0:
-                    train_img_aug = batch[0]
-                else:
-                    train_img_aug = torch.cat([train_img_aug, batch[0]], dim=0)
-            train_data = TensorDataset(train_img_aug, train_cap, train_mask)
-            train_sampler = RandomSampler(train_data)
-            train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
-
         start_time2 = time.time()
         for step, batch in enumerate(train_dataloader):
             teacher_net1.train()
