@@ -34,16 +34,16 @@ def main(idloss_override=None):
     WRITER = SummaryWriter(logdir)
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=250, type=int)
-    PARSER.add_argument("--batchsize", help="batch size", default=64, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
+    PARSER.add_argument("--batchsize", help="batch size", default=72, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
     PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
-    PARSER.add_argument("--aug", help="if augment training", default=1, type=int)
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
-    PARSER.add_argument("--idloss", help="if training with id loss", default=1, type=int)
+    PARSER.add_argument("--idloss", help="if training with id loss", default=0, type=int)
+    PARSER.add_argument("--cropping", help="if randomly crop train images", default=1, type=int)
 
     MY_ARGS = PARSER.parse_args()
     if idloss_override is not None:
@@ -67,11 +67,6 @@ def main(idloss_override=None):
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
     device = "cuda:0"
-
-    if MY_ARGS.aug == 0:
-        train_data = TensorDataset(train_img, train_cap, train_mask)
-        train_sampler = RandomSampler(train_data)
-        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
 
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
@@ -127,26 +122,28 @@ def main(idloss_override=None):
     val_accs = []
     val_sim = []
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder("dataset/images/train", transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-        ])),
-        batch_size=128, shuffle=False,
-        num_workers=2, pin_memory=False)
-
-    # augment training images
-    if MY_ARGS.aug == 1:
-        train_img_aug = []
-        for step, batch in enumerate(train_loader):
-            if step == 0:
-                train_img_aug = batch[0]
-            else:
-                train_img_aug = torch.cat([train_img_aug, batch[0]], dim=0)
-        train_data = TensorDataset(train_img_aug, train_cap, train_mask)
-        train_sampler = RandomSampler(train_data)
-        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
+    if MY_ARGS.cropping == 1:
+        train_loader = torch.utils.data.DataLoader(
+            datasets.ImageFolder("dataset/images/train", transforms.Compose([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
+            ])),
+            batch_size=128, shuffle=False,
+            num_workers=2, pin_memory=False)
+    else:
+        train_loader = torch.utils.data.DataLoader(
+            datasets.ImageFolder("dataset/images/train", transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
+            ])),
+            batch_size=128, shuffle=False,
+            num_workers=2, pin_memory=False)
 
     for epoch in range(NB_EPOCHS):
         """
@@ -164,6 +161,18 @@ def main(idloss_override=None):
         text_net.model.train()
         vision_net.model.train()
         start_time = time.time()
+
+        # augment training images
+        train_img_aug = []
+        for step, batch in enumerate(train_loader):
+            if step == 0:
+                train_img_aug = batch[0]
+            else:
+                train_img_aug = torch.cat([train_img_aug, batch[0]], dim=0)
+        train_data = TensorDataset(train_img_aug, train_cap, train_mask)
+        train_sampler = RandomSampler(train_data)
+        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
+
         start_time2 = time.time()
         for step, batch in enumerate(train_dataloader):
             teacher_net1.train()
@@ -221,7 +230,6 @@ def main(idloss_override=None):
         WRITER.add_scalar('Similarity/train', np.average(running_similarity), epoch)
         WRITER.add_scalar('Var1/train', np.average(running_enc1_var), epoch)
         WRITER.add_scalar('Var2/train', np.average(running_enc2_var), epoch)
-        print(np.average(running_enc1_var), np.average(running_enc2_var))
 
         """
         Validating

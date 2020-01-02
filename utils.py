@@ -90,7 +90,6 @@ def cache_data_helper1(which, limit):
     train_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(traindir, transforms.Compose([
             transforms.Resize((224, 224)),
-            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
         ])),
@@ -101,7 +100,9 @@ def cache_data_helper1(which, limit):
     texts = []
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     longest_length = 0
-    print("caching data")
+    print("caching data with %d images" % len(train_loader))
+
+    assert len(train_loader) > 0
 
     for step, batch in enumerate(train_loader):
         if preprocess_path(batch[1])[0] not in image_list:
@@ -201,7 +202,7 @@ def calculate_nb_params(models):
 
 
 if __name__ == "__main__":
-    cache_data("train", -1)
+    # cache_data("train", -1)
     cache_data("val", -1)
 
 
