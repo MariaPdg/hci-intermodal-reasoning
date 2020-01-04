@@ -7,28 +7,40 @@ import torch.optim as optim
 import time
 import argparse
 import numpy as np
-import sys
-import os
+import random
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-
+from transformers import DistilBertTokenizer
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
-from knockknock import slack_sender
 from datetime import datetime
 
 
-def momentum_update(model_q, model_k, beta=0.999):
-    param_k = model_k.state_dict()
-    param_q = model_q.named_parameters()
-    for n, q in param_q:
-        if n in param_k:
-            param_k[n].data.copy_(beta * param_k[n].data + (1 - beta) * q.data)
-    model_k.load_state_dict(param_k)
+def process_batch(id2cap, img2id, _batch, _tokenizer):
+    _images, _paths = _batch
+    _paths = utils.preprocess_path(_paths)
+    _captions = []
+    _masks = []
+    longest_length = 0
+    for _p in _paths:
+        _cap = random.choice([s.rstrip().lower() for s in id2cap[img2id[_p]]])
+        _sen = _tokenizer.encode("[CLS] " + _cap + " [SEP]")
+        _captions.append(_sen)
+        if len(_sen) > longest_length:
+            longest_length = len(_sen)
+    for _sen in _captions:
+        mask = [1] * len(_sen)
+        while len(_sen) < longest_length:
+            _sen.append(0)
+            mask.append(0)
+        _masks.append(mask)
+        assert len(_sen) == longest_length == len(mask)
+    _captions, _masks = torch.from_numpy(np.array(_captions)), torch.from_numpy(np.array(_masks))
+    return _images, _captions, _masks
 
 
-def main():
+def main(idloss_override=None):
     now = datetime.now()
     logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
     WRITER = SummaryWriter(logdir)
@@ -41,10 +53,13 @@ def main():
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
     PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
-    PARSER.add_argument("--aug", help="if augment training", default=1, type=int)
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
+    PARSER.add_argument("--idloss", help="if training with id loss", default=0, type=int)
+    PARSER.add_argument("--cropping", help="if randomly crop train images", default=1, type=int)
 
     MY_ARGS = PARSER.parse_args()
+    if idloss_override is not None:
+        MY_ARGS.idloss = idloss_override
 
     LOGGER.info("=============================================================")
     print(MY_ARGS)
@@ -65,30 +80,16 @@ def main():
     NB_EPOCHS = MY_ARGS.epochs
     device = "cuda:0"
 
-    if MY_ARGS.aug == 0:
-        train_data = TensorDataset(train_img, train_cap, train_mask)
-        train_sampler = RandomSampler(train_data)
-        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
-
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
     valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE, num_workers=2)
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
-    if MY_ARGS.arch == 1:
-        teacher_net1 = teacher_network.TeacherNet()
-        teacher_net2 = teacher_network.TeacherNet()
-    elif MY_ARGS.arch == 2:
-        teacher_net1 = teacher_network.TeacherNet2()
-        teacher_net2 = teacher_network.TeacherNet2()
-    elif MY_ARGS.arch == 3:
-        teacher_net1 = teacher_network.TeacherNet3query()
-        teacher_net2 = teacher_network.TeacherNet3key()
-    elif MY_ARGS.arch == 4:
-        teacher_net1 = teacher_network.TeacherNet4()
-        teacher_net2 = teacher_network.TeacherNet4()
-    ranking_loss = teacher_network.ContrastiveLoss(1, device)
+    teacher_net1 = teacher_network.TeacherNet3query()
+    teacher_net2 = teacher_network.TeacherNet3key()
+    ranking_loss = teacher_network.ContrastiveLossInBatch(1, device)
+    identification_loss = teacher_network.IdentificationLossInBatch(device)
     teacher_net1.to(device)
     teacher_net2.to(device)
     ranking_loss.to(device)
@@ -107,13 +108,15 @@ def main():
             params = []
             for p in teacher_net1.parameters():
                 params.append(p)
+            for p in teacher_net2.parameters():
+                params.append(p)
             for p in vision_net.parameters():
                 params.append(p)
             for p in text_net.parameters():
                 params.append(p)
             optimizer = optim.SGD(params,
                                   lr=2e-4, weight_decay=0.0001, momentum=0.9)
-            print("Number of training params", utils.calculate_nb_params([teacher_net1,
+            print("Number of training params", utils.calculate_nb_params([teacher_net1, teacher_net2,
                                                                           vision_net, text_net]))
         else:
             optimizer = optim.SGD(teacher_net1.parameters(), lr=2e-4, weight_decay=0.0001, momentum=0.9)
@@ -130,93 +133,91 @@ def main():
     val_losses = []
     val_accs = []
     val_sim = []
-    NEG_SAMPLES = teacher_network.CustomedQueue(256)
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder("dataset/images/train", transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225]),
-        ])),
-        batch_size=128, shuffle=False,
-        num_workers=2, pin_memory=False)
+    TOKENIZER = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+    ID2CAP_TRAIN, IMAGE2ID_TRAIN = utils.read_caption("dataset/annotations/captions_%s2014.json" % "train")
+    datasets.ImageFolder.__getitem__ = utils.new_get
+
+    if MY_ARGS.cropping == 1:
+        train_loader = torch.utils.data.DataLoader(
+            datasets.ImageFolder("dataset/images/train", transforms.Compose([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
+            ])),
+            batch_size=BATCH_SIZE, shuffle=True,
+            num_workers=2, pin_memory=False)
+    else:
+        train_loader = torch.utils.data.DataLoader(
+            datasets.ImageFolder("dataset/images/train", transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
+            ])),
+            batch_size=BATCH_SIZE, shuffle=True,
+            num_workers=2, pin_memory=False)
 
     for epoch in range(NB_EPOCHS):
         """
         Training
         """
         running_loss = []
+        running_loss_total = []
         running_similarity = []
         running_enc1_var = []
         running_enc2_var = []
         running_corrects = 0.0
         total_samples = 0
         teacher_net1.train()
-        if MY_ARGS.end2end == 1:
-            text_net.model.train()
-            vision_net.model.train()
+        teacher_net2.train()
+        text_net.model.train()
+        vision_net.model.train()
         start_time = time.time()
 
-        # augment training images
-        if MY_ARGS.aug == 1:
-            train_img_aug = []
-            for step, batch in enumerate(train_loader):
-                if step == 0:
-                    train_img_aug = batch[0]
-                else:
-                    train_img_aug = torch.cat([train_img_aug, batch[0]], dim=0)
-            train_data = TensorDataset(train_img_aug, train_cap, train_mask)
-            train_sampler = RandomSampler(train_data)
-            train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE, num_workers=2)
-
         start_time2 = time.time()
-        for step, batch in enumerate(train_dataloader):
-            img, cap, mask = tuple(t.to(device) for t in batch)
-            if NEG_SAMPLES.empty():
-                with torch.no_grad():
-                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
-                NEG_SAMPLES.enqueue(txt_vec)
-                continue
+        for step, batch in enumerate(train_loader):
+            teacher_net1.train()
+            teacher_net2.train()
+            text_net.model.train()
+            vision_net.model.train()
 
-            else:
-                with torch.set_grad_enabled(MY_ARGS.end2end == 1):
-                    img_feature = vision_net.forward(img)
-                    txt_feature = text_net.forward(cap, mask)
+            img, cap, mask = tuple(t.to(device) for t in process_batch(ID2CAP_TRAIN, IMAGE2ID_TRAIN, batch, TOKENIZER))
+            img_feature = vision_net.forward(img)
+            txt_feature = text_net.forward(cap, mask)
 
-                img_vec = teacher_net1.forward(img_feature)
-                txt_vec = teacher_net2.forward(txt_feature)
-                neg_txt_vec = NEG_SAMPLES.get_tensor()
-                txt_vec = txt_vec.detach()
+            img_vec = teacher_net1.forward(img_feature)
+            txt_vec = teacher_net2.forward(txt_feature)
 
-                loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
-                running_loss.append(loss.item())
-                loss.backward()
+            loss = ranking_loss(img_vec, txt_vec)
+            running_loss.append(loss.item())
+            if MY_ARGS.idloss:
+                loss += identification_loss(img_vec) + identification_loss(txt_vec)
+            running_loss_total.append(loss.item())
+            loss.backward()
 
-                # update encoder 1
-                optimizer.step()
-                optimizer.zero_grad()
-                # lr_scheduler.step(epoch)
+            # update encoder 1 and 2
+            optimizer.step()
+            optimizer.zero_grad()
 
-                # update encoder 2
-                momentum_update(teacher_net1, teacher_net2)
+            teacher_net1.eval()
+            teacher_net2.eval()
+            text_net.model.eval()
+            vision_net.model.eval()
 
-                teacher_net1.eval()
-                with torch.no_grad():
-                    img_vec = teacher_net1.forward(img_feature)
-                    txt_vec = teacher_net2.forward(txt_feature)
-                    _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
-                    enc1_var, enc2_var = torch.mean(torch.var(img_vec, dim=0)).item(), \
-                                         torch.mean(torch.var(txt_vec, dim=0)).item()
-                running_similarity.append(avg_similarity)
-                running_enc1_var.append(enc1_var)
-                running_enc2_var.append(enc2_var)
-                NEG_SAMPLES.enqueue(txt_vec)
-                NEG_SAMPLES.dequeue(BATCH_SIZE)
+            img_vec = teacher_net1.forward(img_feature)
+            txt_vec = teacher_net2.forward(txt_feature)
+            _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
+            enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(txt_vec)
+            running_similarity.append(avg_similarity)
+            running_enc1_var.append(enc1_var)
+            running_enc2_var.append(enc2_var)
 
-                running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
-                total_samples += len(preds)
+            running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
+            total_samples += len(preds)
 
         LOGGER.info("Epoch %d: train loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
                                                                   np.max(running_loss),
@@ -229,6 +230,7 @@ def main():
         train_accs.append(float(running_corrects / total_samples))
         train_sim.append(np.average(running_similarity))
         WRITER.add_scalar('Loss/train', np.average(running_loss), epoch)
+        WRITER.add_scalar('TotalLoss/train', np.average(running_loss_total), epoch)
         WRITER.add_scalar('Accuracy/train', float(running_corrects / total_samples), epoch)
         WRITER.add_scalar('Similarity/train', np.average(running_similarity), epoch)
         WRITER.add_scalar('Var1/train', np.average(running_enc1_var), epoch)
@@ -238,6 +240,7 @@ def main():
         Validating
         """
         running_loss = []
+        running_loss_total = []
         running_corrects = 0.0
         total_samples = 0
         running_similarity = []
@@ -245,34 +248,27 @@ def main():
         running_enc2_var = []
         teacher_net1.eval()
         teacher_net2.eval()
-        if MY_ARGS.end2end == 1:
-            text_net.model.eval()
-            vision_net.model.eval()
-        VAL_NEG_SAMPLES = teacher_network.CustomedQueue(256)
+        text_net.model.eval()
+        vision_net.model.eval()
         with torch.no_grad():
             for step, batch in enumerate(valid_dataloader):
                 img, cap, mask = tuple(t.to(device) for t in batch)
-                if VAL_NEG_SAMPLES.empty():
-                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
-                    VAL_NEG_SAMPLES.enqueue(txt_vec)
-                    continue
+                img_vec = teacher_net1.forward(vision_net.forward(img))
+                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
 
-                else:
-                    img_vec = teacher_net1.forward(vision_net.forward(img))
-                    txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
-                    neg_txt_vec = VAL_NEG_SAMPLES.get_tensor()
-                    loss = ranking_loss(img_vec, txt_vec, neg_txt_vec)
-                    running_loss.append(loss.item())
-                    _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vec)
-                    enc1_var, enc2_var = torch.mean(torch.var(img_vec, dim=0)).item(),\
-                                         torch.mean(torch.var(txt_vec, dim=0)).item()
-                    running_enc1_var.append(enc1_var)
-                    running_enc2_var.append(enc2_var)
-                    running_similarity.append(avg_similarity)
-                    VAL_NEG_SAMPLES.enqueue(txt_vec)
-                    VAL_NEG_SAMPLES.dequeue(BATCH_SIZE)
-                    running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
-                    total_samples += len(preds)
+                loss = ranking_loss(img_vec, txt_vec)
+                running_loss.append(loss.item())
+                loss += identification_loss(img_vec) + identification_loss(txt_vec)
+                running_loss_total.append(loss.item())
+                _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
+                enc1_var = identification_loss.compute_diff(img_vec)
+                enc2_var = identification_loss.compute_diff(txt_vec)
+
+                running_enc1_var.append(enc1_var)
+                running_enc2_var.append(enc2_var)
+                running_similarity.append(avg_similarity)
+                running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
+                total_samples += len(preds)
 
         LOGGER.info("          val loss = %f, max=%f min=%f" % (np.average(running_loss),
                                                                 np.max(running_loss),
@@ -285,6 +281,7 @@ def main():
         val_accs.append(float(running_corrects / total_samples))
         val_sim.append(np.average(running_similarity))
         WRITER.add_scalar('Loss/val', np.average(running_loss), epoch)
+        WRITER.add_scalar('TotalLoss/val', np.average(running_loss_total), epoch)
         WRITER.add_scalar('Accuracy/val', float(running_corrects / total_samples), epoch)
         WRITER.add_scalar('Similarity/val', np.average(running_similarity), epoch)
         WRITER.add_scalar('Var1/val', np.average(running_enc1_var), epoch)

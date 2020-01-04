@@ -36,6 +36,8 @@ class Logger:
 
 
 def read_caption(filename="dataset/annotations/captions_val2014.json"):
+    with open('cached_data/%s_images_salicon' % "train", 'rb') as fp:
+        image_list = pickle.load(fp)
     with open(filename) as json_file:
         data = json.load(json_file)
 
@@ -48,8 +50,9 @@ def read_caption(filename="dataset/annotations/captions_val2014.json"):
 
         filename2id = {}
         for img in data["images"]:
-            assert img["file_name"] not in filename2id
-            filename2id[img["file_name"]] = img["id"]
+            if img["file_name"] in image_list:
+                assert img["file_name"] not in filename2id
+                filename2id[img["file_name"]] = img["id"]
 
     return id2cap, filename2id
 
@@ -150,7 +153,6 @@ def cache_data_helper2(which):
     torch.save(masks, "cached_data/%s_mask" % which)
 
 
-@slack_sender(webhook_url=SLACK_WEBHOOK, channel="bot")
 def cache_data(which="val", limit=5):
     """
     Cache data into disk

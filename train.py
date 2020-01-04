@@ -34,7 +34,7 @@ def main(idloss_override=None):
     WRITER = SummaryWriter(logdir)
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=90, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=72, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)

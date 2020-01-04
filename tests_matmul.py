@@ -1,226 +1,151 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-
 import torch
-import math
+import utils
+import text_network
+import teacher_network
+import vision_network
+import torch.optim as optim
+import time
+import argparse
 import numpy as np
+import sys
+import os
+import random
 import matplotlib.pyplot as plt
-
-
-
-def fast_mm(matrix_1, matrix_2, device ="cuda: 1"):
-    
-    torch.set_printoptions(precision=15)
-    size_1 = matrix_1.size()[0]
-    size_2 = matrix_1.size()[1]
-
-    matrix_1.to(device)
-    matrix_2.to(device)
-    
-    if size_1 * size_2 <= 10000 * 100:  # good for 10000*100 matrices
-        return torch.matmul(matrix_1, matrix_2.T).reshape(size_1*size_1,1).to(device)
-    
-
-
-def fast_mm2(matrix_1, matrix_2, device ="cuda: 1"):
-
-    
-    size_1 = matrix_1.size()[0]
-    size_2 = matrix_1.size()[1]
-    
-    matrix_1.to(device)
-    matrix_1 = matrix_1.unsqueeze(1).repeat(1,size_1,1)
-        
-    matrix_2.to(device)
-    
-    res = torch.tensor([]).to(device)
-    
-    for i in range (size_1):
-        mult = torch.bmm(matrix_1[i].view(size_1,1,size_2), matrix_2.view(size_1,size_2,1)).to(device)
-        res = torch.cat((res, mult),0)
-    return res.mean(1)
-        
-
-
-def vector_idx(i,j, batch_size): #return index in a vector
-    return i * batch_size + j
-
-
-
-def matrix_idx(idx,batch_size): #return 2D index in a matrix
-    j = idx % batch_size 
-    i = idx // batch_size
-    return i,j 
-
-
-
-def index_by_value(tensor, values):
-    return torch.nonzero(tensor == values)[0][0].item()
-
-
-
-def test1(matrix_1, matrix_2):
-
-    # ### Test #1: matmul
-
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-
-    start.record()
-    result_1 = (fast_mm(matrix_1, matrix_2))
-    end.record()
-    print("Size of matrix A:", matrix_1.size())
-    print("Size of matrix B:", matrix_2.size())
-
-    print("Result of fast_mm with matmul:", result_1)
-    print("Size of result:", result_1.size())
-
-
-    torch.cuda.synchronize()
-    print("Time:", start.elapsed_time(end))
-
-
-
-
-def test2(matrix_1, matrix_2,):
-
-    # ### Test #2: bmm
-
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-
-    start.record()
-    result_2 = fast_mm2(matrix_1,matrix_2)
-    end.record()
-
-
-    print("Size of matrix A:", matrix_1.size())
-    print("Size of matrix B:", matrix_2.size())
-
-    print("Result of fast_mm2 with bmm:", result_2)
-    print("Size of the result:", result_2.size())
-
-
-    torch.cuda.synchronize()
-    print("Time:", start.elapsed_time(end))
-
-
-def test3(matrix_1, matrix_2,):
-
-    # ### Test #3: Compare matmul and bmm for small matrices
-
-
-    res_mm = fast_mm(X,Y)
-    print("Result of fast_mm:", res_mm)
-    print("Size of the result:", res_mm.size())
-
-    res_bmm = fast_mm2(X,Y)
-    print("Result of fast_mm2:",res_bmm)
-    print("Size of the result:", res_bmm.size())
-
-
-
-def test4(matrix_1, matrix_2, eps = 0.0001):
-
-    # ### Test #4: correctness
-
-
-    batch_size = matrix_1.size()[0]
-
-    result_1 = (fast_mm(matrix_1, matrix_2)).to(device)
-    print("Result of fast_mm:", result_1)
-    print("Size of the result:", result_1.size())
-
-
-    count = 0
-    result_1 = (fast_mm(matrix_1, matrix_2)).to(device)
-    for i in range(result_1.size()[0]):
-        a = matrix_idx(i,batch_size)
-        i_1 = a[0]
-        i_2 = a[1]
-        vect_1 = torch.matmul(matrix_1[i_1],matrix_2[i_2]).to(device)
-        #print(vect_1.item())
-        if (abs(result_1[i].item() - vect_1.item()) <= eps):
-            count = count +1
-    print("Number of correspondences with eps:", count)
-
-
-def test5(matrix_1, matrix_2, num):
-
-    # A[i] * B[j] = C[num] ?
-
-    batch_size = matrix_1.size()[0]
-
-    result_1 = (fast_mm(matrix_1, matrix_2)).to(device)
-    print("Vector element", result_1[num].item()) #The element with index num in the vector:"
-
-    pos = matrix_idx(num, batch_size)
-    print("Matrix index",pos) #Position of the same element in matrix
-
-    i = pos[0]
-    j = pos[1]
-
-    print("Dot product of two vectors",torch.matmul(matrix_1[i],matrix_2[j]).item())
-
-
-
-if __name__ == "__main__":
-
-
-    # matrix_1 = torch.rand(500, 100)
-    # matrix_2 = torch.rand(500, 100)
-    # batch_size = 500
-
-    # device = "cuda: 1"
-    # matrix_1.to(device)
-    # matrix_2.to(device)
-
-    X = torch.tensor([[2.0, 3.0], [4.0, 5.0], [7.0, 8.0]])
-    Y = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-
-    # the same results
-    print("1", fast_mm(X, Y))
-    print("2", (X @ Y.T).reshape(X.size(0) * X.size(0), 1))
-    for i in range(X.size(0)):
-        for j in range(Y.size(0)):
-            print("3", torch.matmul(X[i].view(1, X.size(1)), Y[j].view(X.size(1), 1)))
-
-    # test1(matrix_1, matrix_2)  # Fast_mm with time
-    # test2(matrix_1, matrix_2)  # Fast_mm2 with time (with bmm)
-    # test3(X, Y)  # See results of fast_matmul and bmm for small matrices
-    # test4(matrix_1, matrix_2, eps = 0.0001) # Correctness: number of correspondences for matmul and fast_mm
-    # test5(matrix_1, matrix_2, num = 555793) # A[i] * B[j] = C[num]
-
-
-    error = []
-    coeffs = [1, 1, 1, 1, 3, 5, 7, 9, 11, 100, 200, 300, 1000]
-    for coeff in coeffs:
-        device = "cpu"
-        matrix_1 = torch.rand(50, 100)*coeff
-        matrix_2 = torch.rand(50, 100)*coeff
-        batch_size = 50
-
-        # res1 = fast_mm(matrix_1, matrix_2, device)
-        # res1 = matrix_1 @ matrix_2.T
-        res1 = torch.matmul(matrix_1, matrix_2.T)
-
-        avg_err = []
-
-        for du1 in range(matrix_1.size(0)):
-            for du2 in range(matrix_2.size(0)):
-                # a1 = res1[vector_idx(du1, du2, batch_size)]
-                # a2 = torch.matmul(matrix_1[du1].view(1, 100), matrix_2[du2].view(100,1))
-                # avg_err.append(abs(a1.item() - a2.item()))
-
-                a1 = res1[du1][du2]
-                a2 = torch.matmul(matrix_1[du1].view(1, 100), matrix_2[du2].view(100, 1))
-                avg_err.append(abs(a1 - a2.item()))
-
-        error.append(np.average(avg_err))
-
-
-    plt.plot(range(len(error)), error)
-    plt.savefig("figures/test_matmul.png")
-    #
-    # test4(matrix_1, matrix_2, eps = 1.5)
+import pickle
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+
+from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from knockknock import slack_sender
+from transformers import DistilBertTokenizer
+from datetime import datetime
+
+
+def preprocess_captions(_captions_list):
+    res = []
+    for _cap in _captions_list:
+        res.append(_cap.rstrip().lower())
+    return res
+
+def fake_img_func(inp1):
+    return torch.rand(inp1.size(0), 100)
+
+def fake_text_func(inp1, inp2):
+    return torch.rand(inp1.size(0), 100)
+
+def process_batch(id2cap, img2id, _batch, _tokenizer):
+    _images, _paths = _batch
+    _paths = utils.preprocess_path(_paths)
+    _captions = []
+    _masks = []
+    _id = []
+    longest_length = 0
+    for _p in _paths:
+        _id.append(img2id[_p])
+        _cap = random.choice([s.rstrip().lower() for s in id2cap[img2id[_p]]])
+        _sen = _tokenizer.encode("[CLS] " + _cap + " [SEP]")
+        _captions.append(_sen)
+        if len(_sen) > longest_length:
+            longest_length = len(_sen)
+    for _sen in _captions:
+        mask = [1] * len(_sen)
+        while len(_sen) < longest_length:
+            _sen.append(0)
+            mask.append(0)
+        _masks.append(mask)
+        assert len(_sen) == longest_length == len(mask)
+    _captions, _masks = torch.from_numpy(np.array(_captions)), torch.from_numpy(np.array(_masks))
+    return _images, _captions, _masks, _id
+
+
+def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _tokenizer, _text_model_func,
+                       device="cpu", _nb_neg_vectors=63):
+    """
+
+    :param _neg_space:
+    :param _positive_img_id:
+    :param id2cap:
+    :param _tokenizer:
+    :param _text_model_func: must be in eval mode
+    :return:
+    """
+    _neg_space = list(_neg_space)
+    try:
+        _neg_space.remove(_positive_img_id)
+    except ValueError:
+        pass
+    _neg_cap_list = []
+    for _neg_img_id in _neg_space:
+        _neg_cap_list.extend(id2cap[_neg_img_id])
+    _neg_cap_list = preprocess_captions(_neg_cap_list)
+    _neg_cap_tokenized_list = []
+    _neg_masks = []
+    longest_len = 0
+    for _cap in _neg_cap_list:
+        _sen = _tokenizer.encode("[CLS] " + _cap + " [SEP]")
+        _neg_cap_tokenized_list.append(_sen)
+        if len(_sen) > longest_len:
+            longest_len = len(_sen)
+    for _sen in _neg_cap_tokenized_list:
+        _mask = [1] * len(_sen)
+        while len(_sen) < longest_len:
+            _sen.append(0)
+            _mask.append(0)
+        _neg_masks.append(_mask)
+        assert len(_sen) == longest_len == len(_mask)
+    _captions, _masks = torch.from_numpy(np.array(_neg_cap_tokenized_list)), torch.from_numpy(np.array(_neg_masks))
+    _neg_data = TensorDataset(_captions, _masks)
+    _neg_sampler = SequentialSampler(_neg_data)
+    _neg_dataloader = DataLoader(_neg_data, sampler=_neg_sampler, batch_size=100, num_workers=2)
+    _neg_tracker = []
+    for _batch in _neg_dataloader:
+        _du1, _du2 = tuple(t.to(device) for t in _batch)
+        _neg_vec = _text_model_func(_du1, _du2)
+        for _i in range(_neg_vec.size(0)):
+            _score = torch.matmul(_postive_img_vec.view(1, 100), _neg_vec[_i].view(100, 1)).item()
+            _neg_tracker.append((_score, _du1[_i], _du2[_i]))
+    _res = [_neg_tracker[dummy2] for dummy2 in np.argsort([dummy[0] for dummy in _neg_tracker])[-_nb_neg_vectors:]]
+    _neg_cap = torch.cat([dummy3[1].view(1, dummy3[1].size(0)) for dummy3 in _res], dim=0)
+    _neg_mask = torch.cat([dummy3[2].view(1, dummy3[2].size(0)) for dummy3 in _res], dim=0)
+    return _neg_cap, _neg_mask
+
+
+# ID2CAP_TRAIN, IMAGE2ID_TRAIN = utils.read_caption("dataset/annotations/captions_%s2014.json" % "train")
+#
+# with open('cached_data/id2cap_train.json', 'wb') as fp:
+#     pickle.dump(ID2CAP_TRAIN, fp, protocol=pickle.HIGHEST_PROTOCOL)
+# with open('cached_data/image2id_train.json', 'wb') as fp:
+#     pickle.dump(IMAGE2ID_TRAIN, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+with open('cached_data/id2cap_train.json', 'rb') as fp:
+    ID2CAP_TRAIN = pickle.load(fp)
+with open('cached_data/image2id_train.json', 'rb') as fp:
+    IMAGE2ID_TRAIN = pickle.load(fp)
+
+IMAGES_LIST = list(IMAGE2ID_TRAIN.values())
+random.shuffle(IMAGES_LIST)
+CHUNKS = np.array_split(IMAGES_LIST, 100)
+datasets.ImageFolder.__getitem__ = utils.new_get
+train_loader = torch.utils.data.DataLoader(
+    datasets.ImageFolder("dataset/images/train", transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])),
+    batch_size=64, shuffle=False,
+    num_workers=2, pin_memory=False)
+tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+
+for epoch in range(250):
+    for step, batch in enumerate(train_loader):
+        im, cap, mask, id_code = process_batch(ID2CAP_TRAIN, IMAGE2ID_TRAIN, batch, tokenizer)
+        NEG_SPACE = CHUNKS[epoch % len(CHUNKS)]
+        pos_im_vec = fake_img_func(im)
+        for index in range(im.size(0)):
+            neg_cap, neg_mask = sample_neg_vectors(NEG_SPACE, id_code[index], pos_im_vec[index], ID2CAP_TRAIN, tokenizer, fake_text_func, "cpu")
+            print(neg_cap.size(), neg_mask.size())
+        break
+    break
