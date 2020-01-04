@@ -145,7 +145,7 @@ for epoch in range(250):
         NEG_SPACE = CHUNKS[epoch % len(CHUNKS)]
         pos_im_vec = fake_img_func(im)
         for index in range(im.size(0)):
-            neg_cap, neg_mask = sample_neg_vectors(NEG_SPACE, id_code[index], pos_im_vec[index], ID2CAP_TRAIN, tokenizer, fake_text_func, "cpu")
+            neg_cap, neg_mask = sample_neg_vectors(NEG_SPACE, id_code[index], pos_im_vec[index], ID2CAP_TRAIN, tokenizer, fake_text_func, "cuda:0")
             print(neg_cap.size(), neg_mask.size())
         break
     break

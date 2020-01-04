@@ -155,6 +155,43 @@ class ContrastiveLossInBatch(nn.Module):
         return loss
 
 
+class ContrastiveLossReRank(nn.Module):
+    def __init__(self, temp, dev):
+        super(ContrastiveLossReRank, self).__init__()
+        self.temp = 0.07
+        self.dev = dev
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+
+    def return_logits(self, q, k, neg):
+        N = q.size(0)
+        C = q.size(1)
+        l_neg = None
+        for idx in range(N):
+            if l_neg is None:
+                l_neg = torch.mv(neg[idx], q[idx]).view(1, N - 1)
+            else:
+                l_neg = torch.cat([l_neg, torch.mv(neg[idx], q[idx]).view(1, N - 1)], dim=0)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        sim_diff = l_pos.squeeze() - torch.max(l_neg, dim=1).values
+        return logits, torch.argmax(logits, dim=1), torch.mean(sim_diff).item()
+
+    def forward(self, q, k, neg):
+        N = q.size(0)
+        C = q.size(1)
+        l_neg = None
+        for idx in range(N):
+            if l_neg is None:
+                l_neg = torch.mv(neg[idx], q[idx]).view(1, N-1)
+            else:
+                l_neg = torch.cat([l_neg, torch.mv(neg[idx], q[idx]).view(1, N-1)], dim=0)
+        l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
+        logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
+        labels = torch.zeros(N, dtype=torch.long, device=self.dev)
+        loss = self.loss_fn(logits/self.temp, labels)
+        return loss
+
+
 class IdentificationLossInBatch(nn.Module):
     def __init__(self, dev="cpu"):
         super(IdentificationLossInBatch, self).__init__()
