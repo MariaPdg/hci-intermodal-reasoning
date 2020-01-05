@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import GPUtil
+import sys
 from transformers import DistilBertTokenizer
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
@@ -59,13 +60,7 @@ def process_batch(id2cap, img2id, _batch, _tokenizer):
     return _images, _captions, _masks, _id
 
 
-def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _tokenizer, _text_model_func,
-                       device="cpu", _nb_neg_vectors=63, clear_mem=True):
-    _neg_space = list(_neg_space)
-    try:
-        _neg_space.remove(_positive_img_id)
-    except ValueError:
-        pass
+def forward_neg_space(_neg_space, _text2vec, id2cap, _text_model_func, _tokenizer, device):
     _neg_cap_list = []
     for _neg_img_id in _neg_space:
         _neg_cap_list.extend(id2cap[_neg_img_id])
@@ -73,8 +68,13 @@ def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _
     _neg_cap_tokenized_list = []
     _neg_masks = []
     longest_len = 0
+    _cap2vec = {}
     for _cap in _neg_cap_list:
-        _sen = _tokenizer.encode("[CLS] " + _cap + " [SEP]")
+        try:
+            _sen = _text2vec[_cap]
+        except KeyError:
+            _sen = _tokenizer.encode("[CLS] " + _cap + " [SEP]")
+            _text2vec[_cap] = _sen
         _neg_cap_tokenized_list.append(_sen)
         if len(_sen) > longest_len:
             longest_len = len(_sen)
@@ -85,38 +85,98 @@ def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _
             _mask.append(0)
         _neg_masks.append(_mask)
         assert len(_sen) == longest_len == len(_mask)
+
+    _captions, _masks = torch.from_numpy(np.array(_neg_cap_tokenized_list)), torch.from_numpy(np.array(_neg_masks))
+    _neg_data = TensorDataset(_captions, _masks, torch.arange(_captions.size(0)))
+    _neg_sampler = SequentialSampler(_neg_data)  # must not be random here
+    _neg_dataloader = DataLoader(_neg_data, sampler=_neg_sampler, batch_size=32, num_workers=5)
+
+    with torch.no_grad():
+        for _step, _batch in enumerate(_neg_dataloader):
+            _du1, _du2 = tuple(t.to(device) for t in _batch[:2])
+            _neg_vec = _text_model_func(_du1, _du2)
+            for _idx2, _idx in enumerate(_batch[2]):
+                _cap2vec[_neg_cap_list[_idx.item()]] = _neg_vec[_idx2]
+    del _du1
+    del _du2
+    del _neg_vec
+    torch.cuda.empty_cache()
+    return _cap2vec
+
+
+def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _tokenizer, _text2vec, _cap2vec,
+                       _text_model_func,
+                       device="cpu", _nb_neg_vectors=63, clear_mem=True):
+    _neg_space = list(_neg_space)
+    try:
+        _neg_space.remove(_positive_img_id)
+    except ValueError:
+        pass
+
+    _neg_cap_list = []
+    for _neg_img_id in _neg_space:
+        _neg_cap_list.extend(id2cap[_neg_img_id])
+    _neg_cap_list = preprocess_captions(_neg_cap_list)
+    _neg_cap_tokenized_list = []
+    _neg_masks = []
+    longest_len = 0
+    for _cap in _neg_cap_list:
+        try:
+            _sen = _text2vec[_cap]
+        except KeyError:
+            _sen = _tokenizer.encode("[CLS] " + _cap + " [SEP]")
+            _text2vec[_cap] = _sen
+        _neg_cap_tokenized_list.append(_sen)
+        if len(_sen) > longest_len:
+            longest_len = len(_sen)
+    for _sen in _neg_cap_tokenized_list:
+        _mask = [1] * len(_sen)
+        while len(_sen) < longest_len:
+            _sen.append(0)
+            _mask.append(0)
+        _neg_masks.append(_mask)
+        assert len(_sen) == longest_len == len(_mask)
+
     _captions, _masks = torch.from_numpy(np.array(_neg_cap_tokenized_list)), torch.from_numpy(np.array(_neg_masks))
     _neg_data = TensorDataset(_captions, _masks)
-    _neg_sampler = RandomSampler(_neg_data)
-    _neg_dataloader = DataLoader(_neg_data, sampler=_neg_sampler, batch_size=100, num_workers=2)
+    _neg_sampler = SequentialSampler(_neg_data)  # must not be random here
+    _neg_dataloader = DataLoader(_neg_data, sampler=_neg_sampler, batch_size=int(_captions.size(0)/10), num_workers=5)
     _neg_tracker = []
+    _all_scores = []
 
-    for _batch in _neg_dataloader:
-        _du1, _du2 = tuple(t.to(device) for t in _batch)
-        if _du1.size(0) <= 1:
-            continue
-        _neg_vec = _text_model_func(_du1, _du2)
-        for _i in range(_neg_vec.size(0)):
-            _score = torch.matmul(_postive_img_vec.view(1, 100), _neg_vec[_i].view(100, 1)).item()
-            _neg_tracker.append((_score, _du1[_i], _du2[_i]))
-    _res = [_neg_tracker[dummy2] for dummy2 in np.argsort([dummy[0] for dummy in _neg_tracker])[-_nb_neg_vectors:]]
-    _neg_cap = torch.cat([dummy3[1].view(1, dummy3[1].size(0)) for dummy3 in _res], dim=0)
-    _neg_mask = torch.cat([dummy3[2].view(1, dummy3[2].size(0)) for dummy3 in _res], dim=0)
+    for _cap in _neg_cap_list:
+        _neg_vec = _cap2vec[_cap]
+        _score = torch.matmul(_postive_img_vec.view(1, 100), _neg_vec.view(100, 1)).item()
+        _all_scores.append(_score)
 
-    # clean mem
-    if clear_mem:
-        del _du1
-        del _du2
-        del _neg_vec
-        torch.cuda.empty_cache()
+    _res = np.argsort(_all_scores)[-_nb_neg_vectors:]
 
-    return _neg_cap, _neg_mask
+    _neg_cap = _captions[_res]
+    _neg_mask = _masks[_res]
+
+    return _neg_cap.to(device), _neg_mask.to(device)
+
+
+def tokenize_neg_space(_neg_spaces, id2cap, _tokenizer):
+    _all = []
+    for _neg_space in _neg_spaces:
+        _res = {}
+        _neg_cap_list = []
+        for _neg_img_id in _neg_space:
+            _neg_cap_list.extend(id2cap[_neg_img_id])
+        _neg_cap_list = preprocess_captions(_neg_cap_list)
+        for _cap in _neg_cap_list:
+            if _cap not in _res:
+                _sen = _tokenizer.encode("[CLS] " + _cap + " [SEP]")
+                _res[_cap] = _sen
+        _all.append(_res)
+    return _all
 
 
 def main(idloss_override=None):
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=250, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=10, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=16, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
@@ -168,10 +228,12 @@ def main(idloss_override=None):
     teacher_net1 = teacher_network.TeacherNet3query()
     teacher_net2 = teacher_network.TeacherNet3key()
     ranking_loss = teacher_network.ContrastiveLossReRank(1, device)
+    ranking_loss2 = teacher_network.ContrastiveLossInBatch(1, device)
     identification_loss = teacher_network.IdentificationLossInBatch(device)
     teacher_net1.to(device)
     teacher_net2.to(device)
     ranking_loss.to(device)
+    ranking_loss2.to(device)
 
     # define if train vision and text net
     if MY_ARGS.end2end != 1:
@@ -221,9 +283,14 @@ def main(idloss_override=None):
     with open('cached_data/image2id_train.json', 'rb') as fp:
         IMAGE2ID_TRAIN = pickle.load(fp)
 
+    def text_func(inp1, inp2):
+        something = text_net.forward(inp1, inp2)
+        return teacher_net2.forward(something)
+
     IMAGES_LIST = list(IMAGE2ID_TRAIN.values())
     random.shuffle(IMAGES_LIST)
     CHUNKS = np.array_split(IMAGES_LIST, 100)
+    TEXT2VEC_ALL = tokenize_neg_space(CHUNKS, ID2CAP_TRAIN, TOKENIZER)
 
     if MY_ARGS.cropping == 1:
         train_loader = torch.utils.data.DataLoader(
@@ -259,6 +326,9 @@ def main(idloss_override=None):
         running_enc2_var = []
         running_corrects = 0.0
         total_samples = 0
+        NEG_SPACE = CHUNKS[epoch % len(CHUNKS)]
+        TEXT2VEC = TEXT2VEC_ALL[epoch % len(CHUNKS)]
+        CAP2VEC = forward_neg_space(NEG_SPACE, TEXT2VEC, ID2CAP_TRAIN, text_func, TOKENIZER, device)
         start_time = time.time()
 
         start_time2 = time.time()
@@ -268,23 +338,22 @@ def main(idloss_override=None):
             text_net.model.eval()
             vision_net.model.eval()
 
-            img, cap, mask, id_code = process_batch(ID2CAP_TRAIN, IMAGE2ID_TRAIN, batch, TOKENIZER)
-            img, cap, mask = tuple(t.to(device) for t in (img, cap, mask))
+            st1 = time.time()
+            with torch.no_grad():
+                img, cap, mask, id_code = process_batch(ID2CAP_TRAIN, IMAGE2ID_TRAIN, batch, TOKENIZER)
+                img, cap, mask = tuple(t.to(device) for t in (img, cap, mask))
 
-            NEG_SPACE = CHUNKS[epoch % len(CHUNKS)]
-            img_vec = teacher_net1.forward(vision_net.forward(img))
-            neg_samples = []
+                img_vec = teacher_net1.forward(vision_net.forward(img))
+                neg_samples = []
 
-            def text_func(inp1, inp2):
-                something = text_net.forward(inp1, inp2)
-                return teacher_net2.forward(something)
-
-            for index in range(img_vec.size(0)):
-                neg_cap, neg_mask = sample_neg_vectors(NEG_SPACE, id_code[index], img_vec[index], ID2CAP_TRAIN,
-                                                       TOKENIZER,
-                                                       text_func,
-                                                       device, 16, index == img_vec.size(0)-1)
-                neg_samples.append((neg_cap, neg_mask))
+                for index in range(img_vec.size(0)):
+                    neg_cap, neg_mask = sample_neg_vectors(NEG_SPACE, id_code[index], img_vec[index], ID2CAP_TRAIN,
+                                                           TOKENIZER,
+                                                           TEXT2VEC, CAP2VEC,
+                                                           text_func,
+                                                           device, 10, index == img_vec.size(0)-1)
+                    neg_samples.append((neg_cap, neg_mask))
+            st2 = time.time()
 
             teacher_net1.train()
             teacher_net2.train()
@@ -302,6 +371,7 @@ def main(idloss_override=None):
                 loss += identification_loss(img_vec) + identification_loss(txt_vec)
             running_loss_total.append(loss.item())
             loss.backward()
+            st3 = time.time()
 
             # update encoder 1 and 2
             optimizer.step()
@@ -322,6 +392,8 @@ def main(idloss_override=None):
 
             running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
             total_samples += len(preds)
+            st4 = time.time()
+            # print("1 step took %.3f, sampling took %.3f, forwarding took %.3f, updating took %.3f" % (time.time()-st1, st2-st1, st3-st2, st4-st3))
 
         LOGGER.info("Epoch %d: train loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
                                                                   np.max(running_loss),
@@ -360,11 +432,11 @@ def main(idloss_override=None):
                 img_vec = teacher_net1.forward(vision_net.forward(img))
                 txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
 
-                loss = ranking_loss(img_vec, txt_vec)
+                loss = ranking_loss2(img_vec, txt_vec)
                 running_loss.append(loss.item())
                 loss += identification_loss(img_vec) + identification_loss(txt_vec)
                 running_loss_total.append(loss.item())
-                _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
+                _, preds, avg_similarity = ranking_loss2.return_logits(img_vec, txt_vec)
                 enc1_var = identification_loss.compute_diff(img_vec)
                 enc2_var = identification_loss.compute_diff(txt_vec)
 
