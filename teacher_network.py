@@ -7,9 +7,9 @@ class TeacherNet3query(nn.Module):
     def __init__(self):
         super(TeacherNet3query, self).__init__()
         self.linear0 = nn.Linear(in_features=2048, out_features=768)
-        self.linear1 = nn.Linear(in_features=768, out_features=4096)
-        self.linear2 = nn.Linear(in_features=4096, out_features=4096)
-        self.linear3 = nn.Linear(in_features=4096, out_features=100)
+        self.linear1 = nn.Linear(in_features=768, out_features=1024)
+        self.linear2 = nn.Linear(in_features=1024, out_features=1024)
+        self.linear3 = nn.Linear(in_features=1024, out_features=100)
         self.dropout1 = nn.Dropout(0.3)
         self.dropout2 = nn.Dropout(0.5)
 
@@ -27,9 +27,9 @@ class TeacherNet3query(nn.Module):
 class TeacherNet3key(nn.Module):
     def __init__(self):
         super(TeacherNet3key, self).__init__()
-        self.linear1 = nn.Linear(in_features=768, out_features=4096)
-        self.linear2 = nn.Linear(in_features=4096, out_features=4096)
-        self.linear3 = nn.Linear(in_features=4096, out_features=100)
+        self.linear1 = nn.Linear(in_features=768, out_features=1024)
+        self.linear2 = nn.Linear(in_features=1024, out_features=1024)
+        self.linear3 = nn.Linear(in_features=1024, out_features=100)
         self.dropout1 = nn.Dropout(0.3)
         self.dropout2 = nn.Dropout(0.5)
 
@@ -165,12 +165,13 @@ class ContrastiveLossReRank(nn.Module):
     def return_logits(self, q, k, neg):
         N = q.size(0)
         C = q.size(1)
+        K = neg[0].size(0)
         l_neg = None
         for idx in range(N):
             if l_neg is None:
-                l_neg = torch.mv(neg[idx], q[idx]).view(1, N - 1)
+                l_neg = torch.mv(neg[idx], q[idx]).view(1, K)
             else:
-                l_neg = torch.cat([l_neg, torch.mv(neg[idx], q[idx]).view(1, N - 1)], dim=0)
+                l_neg = torch.cat([l_neg, torch.mv(neg[idx], q[idx]).view(1, K)], dim=0)
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         sim_diff = l_pos.squeeze() - torch.max(l_neg, dim=1).values
@@ -179,12 +180,13 @@ class ContrastiveLossReRank(nn.Module):
     def forward(self, q, k, neg):
         N = q.size(0)
         C = q.size(1)
+        K = neg[0].size(0)
         l_neg = None
         for idx in range(N):
             if l_neg is None:
-                l_neg = torch.mv(neg[idx], q[idx]).view(1, N-1)
+                l_neg = torch.mv(neg[idx], q[idx]).view(1, K)
             else:
-                l_neg = torch.cat([l_neg, torch.mv(neg[idx], q[idx]).view(1, N-1)], dim=0)
+                l_neg = torch.cat([l_neg, torch.mv(neg[idx], q[idx]).view(1, K)], dim=0)
         l_pos = torch.bmm(q.view(N, 1, C), k.view(N, C, 1))
         logits = torch.cat([l_pos.view((N, 1)), l_neg], dim=1)
         labels = torch.zeros(N, dtype=torch.long, device=self.dev)

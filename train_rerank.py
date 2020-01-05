@@ -12,6 +12,7 @@ import random
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+import GPUtil
 from transformers import DistilBertTokenizer
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
@@ -59,7 +60,7 @@ def process_batch(id2cap, img2id, _batch, _tokenizer):
 
 
 def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _tokenizer, _text_model_func,
-                       device="cpu", _nb_neg_vectors=63):
+                       device="cpu", _nb_neg_vectors=63, clear_mem=True):
     _neg_space = list(_neg_space)
     try:
         _neg_space.remove(_positive_img_id)
@@ -86,12 +87,14 @@ def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _
         assert len(_sen) == longest_len == len(_mask)
     _captions, _masks = torch.from_numpy(np.array(_neg_cap_tokenized_list)), torch.from_numpy(np.array(_neg_masks))
     _neg_data = TensorDataset(_captions, _masks)
-    _neg_sampler = SequentialSampler(_neg_data)
+    _neg_sampler = RandomSampler(_neg_data)
     _neg_dataloader = DataLoader(_neg_data, sampler=_neg_sampler, batch_size=100, num_workers=2)
     _neg_tracker = []
+
     for _batch in _neg_dataloader:
         _du1, _du2 = tuple(t.to(device) for t in _batch)
-        print(_du1.size(), _du2.size())
+        if _du1.size(0) <= 1:
+            continue
         _neg_vec = _text_model_func(_du1, _du2)
         for _i in range(_neg_vec.size(0)):
             _score = torch.matmul(_postive_img_vec.view(1, 100), _neg_vec[_i].view(100, 1)).item()
@@ -99,18 +102,22 @@ def sample_neg_vectors(_neg_space, _positive_img_id, _postive_img_vec, id2cap, _
     _res = [_neg_tracker[dummy2] for dummy2 in np.argsort([dummy[0] for dummy in _neg_tracker])[-_nb_neg_vectors:]]
     _neg_cap = torch.cat([dummy3[1].view(1, dummy3[1].size(0)) for dummy3 in _res], dim=0)
     _neg_mask = torch.cat([dummy3[2].view(1, dummy3[2].size(0)) for dummy3 in _res], dim=0)
+
+    # clean mem
+    if clear_mem:
+        del _du1
+        del _du2
+        del _neg_vec
+        torch.cuda.empty_cache()
+
     return _neg_cap, _neg_mask
 
 
 def main(idloss_override=None):
-    now = datetime.now()
-    logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
-    logdir = "logs/debug/"
-    WRITER = SummaryWriter(logdir)
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
     PARSER.add_argument("--epochs", help="number of epochs", default=250, type=int)
-    PARSER.add_argument("--batchsize", help="batch size", default=64, type=int)
+    PARSER.add_argument("--batchsize", help="batch size", default=16, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
@@ -119,8 +126,17 @@ def main(idloss_override=None):
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
     PARSER.add_argument("--idloss", help="if training with id loss", default=0, type=int)
     PARSER.add_argument("--cropping", help="if randomly crop train images", default=1, type=int)
+    PARSER.add_argument("--debug", help="if debugging", default=1, type=int)
 
     MY_ARGS = PARSER.parse_args()
+
+    now = datetime.now()
+    if MY_ARGS.debug == 0:
+        logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
+    else:
+        logdir = "logs/debug/"
+    WRITER = SummaryWriter(logdir)
+
     if idloss_override is not None:
         MY_ARGS.idloss = idloss_override
 
@@ -141,7 +157,7 @@ def main(idloss_override=None):
 
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cpu"
+    device = "cuda:0"
 
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
@@ -267,7 +283,7 @@ def main(idloss_override=None):
                 neg_cap, neg_mask = sample_neg_vectors(NEG_SPACE, id_code[index], img_vec[index], ID2CAP_TRAIN,
                                                        TOKENIZER,
                                                        text_func,
-                                                       device)
+                                                       device, 16, index == img_vec.size(0)-1)
                 neg_samples.append((neg_cap, neg_mask))
 
             teacher_net1.train()
@@ -277,6 +293,7 @@ def main(idloss_override=None):
 
             img_vec = teacher_net1.forward(vision_net.forward(img))
             pos_txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+
             neg_txt_vecs = [teacher_net2.forward(text_net.forward(sample[0], sample[1])) for sample in neg_samples]
 
             loss = ranking_loss(img_vec, pos_txt_vec, neg_txt_vecs)
@@ -295,9 +312,9 @@ def main(idloss_override=None):
             text_net.model.eval()
             vision_net.model.eval()
 
-            img_vec = teacher_net1.forward(img_feature)
-            txt_vec = teacher_net2.forward(txt_feature)
-            _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
+            img_vec = teacher_net1.forward(vision_net.forward(img))
+            txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+            _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec, neg_txt_vecs)
             enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(txt_vec)
             running_similarity.append(avg_similarity)
             running_enc1_var.append(enc1_var)

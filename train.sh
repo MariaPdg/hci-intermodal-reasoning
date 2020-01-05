@@ -1,8 +1,4 @@
-python -u train.py --cropping 1 --batchsize 64
+python -u train_rerank.py --debug 0
 sleep 30s
-python -u train.py --cropping 0 --batchsize 64
-sleep 30s
-python -u train.py --cropping 1 --batchsize 72
-sleep 30s
-python -u train.py --cropping 0 --batchsize 72
+python -u train_two_encoders.py
 sleep 30s
