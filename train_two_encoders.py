@@ -82,7 +82,7 @@ def main(idloss_override=None):
 
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
-    valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE, num_workers=2)
+    valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=64, num_workers=2)
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)
@@ -208,10 +208,11 @@ def main(idloss_override=None):
             text_net.model.eval()
             vision_net.model.eval()
 
-            img_vec = teacher_net1.forward(img_feature)
-            txt_vec = teacher_net2.forward(txt_feature)
-            _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
-            enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(txt_vec)
+            with torch.no_grad():
+                img_vec = teacher_net1.forward(img_feature)
+                txt_vec = teacher_net2.forward(txt_feature)
+                _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
+                enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(txt_vec)
             running_similarity.append(avg_similarity)
             running_enc1_var.append(enc1_var)
             running_enc2_var.append(enc2_var)

@@ -70,7 +70,7 @@ def main(idloss_override=None):
 
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
-    valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=BATCH_SIZE, num_workers=2)
+    valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=64, num_workers=2)
 
     text_net = text_network.TextNet(device)
     vision_net = vision_network.VisionNet(device)

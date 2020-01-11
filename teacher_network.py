@@ -78,20 +78,6 @@ class ContrastiveLoss(nn.Module):
         self.dev = dev
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
-    def predict(self, x_reprets, y_reprets):
-        batch_size = x_reprets.shape[0]
-        vec_size = x_reprets.shape[1]
-        # x_reprets = norm(x_reprets)
-        # y_reprets = norm(y_reprets)
-        embedding_loss = torch.ones(batch_size, batch_size)
-        for i in range(0, batch_size):
-            for j in range(0, batch_size):
-                embedding_loss[i][j] = nn.functional.cosine_similarity(x_reprets[i], y_reprets[j], dim=-1)
-                # print(x_reprets[i], y_reprets[j], torch.matmul(x_reprets[i], y_reprets[j]))
-        # print(embedding_loss)
-        preds = torch.argmax(embedding_loss, dim=1)  # return the index of minimal of each row
-        return preds
-
     def return_logits(self, q, k, queue):
         N = q.size(0)
         C = q.size(1)
