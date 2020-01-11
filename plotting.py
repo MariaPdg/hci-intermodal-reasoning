@@ -7,23 +7,35 @@ import os
 
 
 plotly.io.orca.config.executable = "/home/sontung/Tools/orca"
+json_files = [
+    ["run-20191212-131657-tag-Accuracy_val.json", "1"],
+    ["run-20191218-121815-tag-Accuracy_val.json", "2"],
+    ["run-20191219-111227-tag-Accuracy_val.json", "3"],
+    ["run-20200104-113614-tag-Accuracy_val.json", "4"],
+    ["run-20200106-234433-tag-Accuracy_val.json", "5"]
+]
+all_data = []
+names = []
+for json_file, name in json_files:
+    with open("logs/%s" % json_file) as json_file:
+        data = json.load(json_file)
+    data_entry1 = [du[2] for du in data]
+    all_data.append(data_entry1)
+    names.append(name)
 
-with open('run-20200107-232324-tag-Accuracy_val.json') as json_file:
-    data = json.load(json_file)
-data_entry1 = [du[2] for du in data]
-
-colors = np.random.rand()
-sz = np.random.rand() * 30
 
 fig = go.Figure()
-fig.add_trace(
-    go.Scatter(
-        x=list(range(len(data_entry1))),
-        y=data_entry1,
-        mode="lines",
-        name="name 1"
+
+for idx, data_entry in enumerate(all_data):
+    print(names[idx])
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(len(data_entry))),
+            y=data_entry,
+            mode="lines",
+            name=names[idx]
+        )
     )
-)
 
 fig.update_layout(
     title="Accuracy on Val set",
