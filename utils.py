@@ -203,6 +203,49 @@ def calculate_nb_params(models):
     return res
 
 
+def load_maps(which):
+    from os import listdir
+    from os.path import isfile, join
+    mypath = "dataset/maps/%s" % which
+    onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
+
+    import re
+    m = re.search('COCO_%s2014_(.+?).png' % which, onlyfiles[0])
+    index = []
+    for item in onlyfiles:
+        m = re.search('COCO_%s2014_(.+?).png' % which, item)
+        if m:
+            index.append(m.group(1))
+    index.sort()
+
+    mask = []
+    for item in index:
+        image_map = 'dataset/maps/' + which + '/COCO_%s2014_' % which + item + '.png'
+
+        img = Image.open(image_map)
+        normalize = transforms.Normalize(mean=[0.485],
+                                         std=[0.229])
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor()
+        ])
+        mask.append(transform(img).squeeze())
+
+    result = torch.stack(mask)
+    return result
+
+
+def cache_dot(which):
+    feature_maps = torch.load("cached_data/%s_img" % which)
+    attent_maps = load_maps(which)
+    products = []
+    for i in range(feature_maps.size()[0]):
+        products.append(torch.matmul(feature_maps[i], attent_maps[i]))
+
+    result = torch.stack(products)
+    torch.save(result, "cached_data/%s_attention" % which)
+    return result
+
 if __name__ == "__main__":
     # cache_data("train", -1)
     cache_data("val", -1)
