@@ -7,6 +7,7 @@ __pycache__/
 cached_data/
 models/
 .ipynb_checkpoints/
+temp/
 webhook_url.txt
 img_faulty
 mask_faulty

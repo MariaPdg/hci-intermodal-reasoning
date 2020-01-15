@@ -11,7 +11,6 @@ import random
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-import queue
 from transformers import DistilBertTokenizer
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
@@ -19,7 +18,12 @@ from datetime import datetime
 
 
 def process_batch(id2cap, img2id, _batch, _tokenizer):
-    _images, _paths = _batch
+    _images, _att_maps, _paths = _batch
+
+    for du19 in range(_images.size(0)):
+        if random.random() > 0.5:
+            _images[du19] = torch.mul(_images[du19], _att_maps[du19])
+
     _paths = utils.preprocess_path(_paths)
     _captions = []
     _masks = []
@@ -47,7 +51,7 @@ def main(idloss_override=None):
     WRITER = SummaryWriter(logdir)
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=250, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=150, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=64, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
@@ -79,7 +83,7 @@ def main(idloss_override=None):
 
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:1"
+    device = "cuda:0"
 
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
@@ -90,12 +94,10 @@ def main(idloss_override=None):
     teacher_net1 = teacher_network.TeacherNet3query()
     teacher_net2 = teacher_network.TeacherNet3key()
     ranking_loss = teacher_network.ContrastiveLossInBatch(1, device)
-    ranking_loss2 = teacher_network.ContrastiveLoss(1, device)
     identification_loss = teacher_network.IdentificationLossInBatch(device)
     teacher_net1.to(device)
     teacher_net2.to(device)
     ranking_loss.to(device)
-    ranking_loss2.to(device)
 
     # define if train vision and text net
     if MY_ARGS.end2end != 1:
@@ -139,7 +141,7 @@ def main(idloss_override=None):
 
     TOKENIZER = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     ID2CAP_TRAIN, IMAGE2ID_TRAIN = utils.read_caption("dataset/annotations/captions_%s2014.json" % "train")
-    datasets.ImageFolder.__getitem__ = utils.new_get
+    datasets.ImageFolder.__getitem__ = utils.new_get_att_maps
 
     if MY_ARGS.cropping == 1:
         train_loader = torch.utils.data.DataLoader(
@@ -147,8 +149,6 @@ def main(idloss_override=None):
                 transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225]),
             ])),
             batch_size=BATCH_SIZE, shuffle=True,
             num_workers=2, pin_memory=False)
@@ -158,13 +158,9 @@ def main(idloss_override=None):
                 transforms.Resize((224, 224)),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225]),
             ])),
             batch_size=BATCH_SIZE, shuffle=True,
             num_workers=2, pin_memory=False)
-
-    NEG_SPACE = queue.Queue()
 
     for epoch in range(NB_EPOCHS):
         """
@@ -191,19 +187,13 @@ def main(idloss_override=None):
             vision_net.model.train()
 
             img, cap, mask = tuple(t.to(device) for t in process_batch(ID2CAP_TRAIN, IMAGE2ID_TRAIN, batch, TOKENIZER))
-            img_vec = teacher_net1.forward(vision_net.forward(img))
-            txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+            img_feature = vision_net.forward(img)
+            txt_feature = text_net.forward(cap, mask)
 
-            NEG_SPACE.put((cap, mask))
+            img_vec = teacher_net1.forward(img_feature)
+            txt_vec = teacher_net2.forward(txt_feature)
 
-            if step == 0:
-                loss = ranking_loss(img_vec, txt_vec)
-
-            else:
-                neg_cap, neg_mask = NEG_SPACE.get()
-                neg_vec = teacher_net2.forward(text_net.forward(neg_cap, neg_mask))
-                loss = ranking_loss2(img_vec, txt_vec, neg_vec)
-
+            loss = ranking_loss(img_vec, txt_vec)
             running_loss.append(loss.item())
             if MY_ARGS.idloss:
                 loss += identification_loss(img_vec) + identification_loss(txt_vec)
@@ -220,8 +210,8 @@ def main(idloss_override=None):
             vision_net.model.eval()
 
             with torch.no_grad():
-                img_vec = teacher_net1.forward(vision_net.forward(img))
-                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                img_vec = teacher_net1.forward(img_feature)
+                txt_vec = teacher_net2.forward(txt_feature)
                 _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
                 enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(txt_vec)
             running_similarity.append(avg_similarity)
@@ -305,10 +295,10 @@ def main(idloss_override=None):
                                                                         start_time3-start_time2))
 
     if MY_ARGS.cache == 1:
-        torch.save(teacher_net1.state_dict(), "models/enc1-queue-t1-%s" % now.strftime("%Y%m%d-%H%M%S"))
-        torch.save(teacher_net2.state_dict(), "models/enc2-queue-t2-%s" % now.strftime("%Y%m%d-%H%M%S"))
-        torch.save(vision_net.model.state_dict(), "models/enc1-queue-%s" % now.strftime("%Y%m%d-%H%M%S"))
-        torch.save(text_net.model.state_dict(), "models/enc2-queue-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(teacher_net1.state_dict(), "models/enc1-t1-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(teacher_net2.state_dict(), "models/enc2-t2-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(vision_net.model.state_dict(), "models/enc1-%s" % now.strftime("%Y%m%d-%H%M%S"))
+        torch.save(text_net.model.state_dict(), "models/enc2-%s" % now.strftime("%Y%m%d-%H%M%S"))
 
     WRITER.close()
 

@@ -10,7 +10,10 @@ import time
 import threading
 import multiprocessing
 import pickle
+import random
 from transformers import DistilBertTokenizer
+from PIL import Image
+
 from knockknock import slack_sender
 
 
@@ -78,6 +81,29 @@ def new_get(self, index):
     if self.transform is not None:
         sample = self.transform(sample)
     return sample, path
+
+
+def new_get_att_maps(self, index):
+    seed = np.random.randint(2147483647)  # make a seed with numpy generator
+    norm_transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+    path, _ = self.samples[index]
+    att_path = path.replace("train14/", "").replace("images", "maps").replace(".jpg", ".png")
+    _att_map = Image.open(att_path)
+    sample = self.loader(path)
+
+    torch.manual_seed(seed)
+    random.seed(seed)
+    if self.transform is not None:
+        sample = self.transform(sample)
+        sample = norm_transform(sample)
+
+    torch.manual_seed(seed)
+    random.seed(seed)
+    if self.transform is not None:
+        _att_map = self.transform(_att_map)
+
+    return sample, _att_map, path
 
 
 def cache_data_helper1(which, limit):
