@@ -40,7 +40,7 @@ def process_batch(id2cap, img2id, _batch, _tokenizer):
     return _images, _captions, _masks
 
 
-def main(idloss_override=None):
+def main(idloss_override=None, batch_size_override=None):
     now = datetime.now()
     logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
     WRITER = SummaryWriter(logdir)
@@ -60,6 +60,8 @@ def main(idloss_override=None):
     MY_ARGS = PARSER.parse_args()
     if idloss_override is not None:
         MY_ARGS.idloss = idloss_override
+    if batch_size_override is not None:
+        MY_ARGS.batchsize = batch_size_override
 
     LOGGER.info("=============================================================")
     print(MY_ARGS)

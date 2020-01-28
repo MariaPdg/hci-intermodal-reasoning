@@ -4,6 +4,8 @@ import GPUtil
 import sys
 import time
 import train
+import train_two_encoders
+import train_queue
 
 from knockknock import slack_sender
 
@@ -29,6 +31,19 @@ def query_gpu():
 
 if __name__ == "__main__":
     query_gpu()
-    train.main()
+    train_queue.main(queue_size_override=1.0)
     query_gpu()
-    train.main(idloss_override=0)
+    train_queue.main(queue_size_override=0.7)
+    query_gpu()
+    train_queue.main(queue_size_override=0.5)
+    query_gpu()
+    train_queue.main(queue_size_override=0.3)
+
+    query_gpu()
+    train_two_encoders.main(batch_size_override=64)
+    query_gpu()
+    train_two_encoders.main(batch_size_override=48)
+    query_gpu()
+    train_two_encoders.main(batch_size_override=32)
+    query_gpu()
+    train_two_encoders.main(batch_size_override=16)

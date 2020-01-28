@@ -41,7 +41,7 @@ def process_batch(id2cap, img2id, _batch, _tokenizer):
     return _images, _captions, _masks
 
 
-def main(idloss_override=None):
+def main(idloss_override=None, queue_size_override=None):
     now = datetime.now()
     logdir = "logs/" + now.strftime("%Y%m%d-%H%M%S") + "/"
     WRITER = SummaryWriter(logdir)
@@ -53,6 +53,7 @@ def main(idloss_override=None):
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
+    PARSER.add_argument("--queue_size", help="size of queue 0-1", default=1, type=float)
     PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
     PARSER.add_argument("--idloss", help="if training with id loss", default=0, type=int)
@@ -61,10 +62,15 @@ def main(idloss_override=None):
     MY_ARGS = PARSER.parse_args()
     if idloss_override is not None:
         MY_ARGS.idloss = idloss_override
+    if queue_size_override is not None:
+        MY_ARGS.queue_size = queue_size_override
 
     LOGGER.info("=============================================================")
     print(MY_ARGS)
     LOGGER.info("=============================================================")
+
+    QUEUE_SIZE = MY_ARGS.queue_size
+    print(QUEUE_SIZE)
 
     train_img = torch.load("cached_data/train_img")
     train_cap = torch.load("cached_data/train_cap")
@@ -79,7 +85,7 @@ def main(idloss_override=None):
 
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
-    device = "cuda:1"
+    device = "cuda:0"
 
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
@@ -201,6 +207,9 @@ def main(idloss_override=None):
 
             else:
                 neg_cap, neg_mask = NEG_SPACE.get()
+                neg_cap = neg_cap[:neg_cap.size(0)*QUEUE_SIZE]
+                neg_mask = neg_mask[:neg_mask.size(0)*QUEUE_SIZE]
+
                 neg_vec = teacher_net2.forward(text_net.forward(neg_cap, neg_mask))
                 loss = ranking_loss2(img_vec, txt_vec, neg_vec)
 
