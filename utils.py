@@ -266,7 +266,7 @@ def cache_dot(which):
     attent_maps = load_maps(which)
     products = []
     for i in range(feature_maps.size()[0]):
-        products.append(torch.matmul(feature_maps[i], attent_maps[i]))
+        products.append(torch.mul(feature_maps[i], attent_maps[i]))
 
     result = torch.stack(products)
     torch.save(result, "cached_data/%s_attention" % which)
