@@ -216,8 +216,8 @@ def main(idloss_override=None, queue_size_override=None):
 
             else:
                 neg_cap, neg_mask = NEG_SPACE.get()
-                neg_cap = neg_cap[:neg_cap.size(0) * QUEUE_SIZE]
-                neg_mask = neg_mask[:neg_mask.size(0) * QUEUE_SIZE]
+                neg_cap = neg_cap[:int(neg_cap.size(0) * QUEUE_SIZE)]
+                neg_mask = neg_mask[:int(neg_mask.size(0) * QUEUE_SIZE)]
 
                 neg_vec = teacher_net2.forward(text_net.forward(neg_cap, neg_mask)).to(device)
                 loss = ranking_loss2(img_vec, txt_vec, neg_vec)
