@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import queue
+import GPUtil
 from transformers import DistilBertTokenizer
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
@@ -58,6 +59,7 @@ def main(idloss_override=None, queue_size_override=None):
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
     PARSER.add_argument("--idloss", help="if training with id loss", default=0, type=int)
     PARSER.add_argument("--cropping", help="if randomly crop train images", default=1, type=int)
+    PARSER.add_argument("--multi", help="if using multi gpu", default=1, type=int)
 
     MY_ARGS = PARSER.parse_args()
     if idloss_override is not None:
@@ -86,20 +88,27 @@ def main(idloss_override=None, queue_size_override=None):
     BATCH_SIZE = MY_ARGS.batchsize
     NB_EPOCHS = MY_ARGS.epochs
     device = "cuda:0"
+    if MY_ARGS.multi > 0:
+        device2 = "cuda:1"
+    else:
+        device2 = "cuda:0"
 
     valid_data = TensorDataset(val_img, val_cap, val_mask)
     valid_sampler = RandomSampler(valid_data)
     valid_dataloader = DataLoader(valid_data, sampler=valid_sampler, batch_size=64, num_workers=2)
 
-    text_net = text_network.TextNet(device)
+    text_net = text_network.TextNet(device2)
+    teacher_net2 = teacher_network.TeacherNet3key()
+    teacher_net2.to(device2)
+
     vision_net = vision_network.VisionNet(device)
     teacher_net1 = teacher_network.TeacherNet3query()
-    teacher_net2 = teacher_network.TeacherNet3key()
+    teacher_net1.to(device)
+
     ranking_loss = teacher_network.ContrastiveLossInBatch(1, device)
     ranking_loss2 = teacher_network.ContrastiveLoss(1, device)
     identification_loss = teacher_network.IdentificationLossInBatch(device)
     teacher_net1.to(device)
-    teacher_net2.to(device)
     ranking_loss.to(device)
     ranking_loss2.to(device)
 
@@ -132,8 +141,6 @@ def main(idloss_override=None, queue_size_override=None):
 
     elif MY_ARGS.optim == 2:
         optimizer = optim.Adam(teacher_net1.parameters(), lr=0.01)
-
-    # lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150, 200], gamma=0.1)
 
     print("Start to train")
     train_losses = []
@@ -196,9 +203,11 @@ def main(idloss_override=None, queue_size_override=None):
             text_net.model.train()
             vision_net.model.train()
 
-            img, cap, mask = tuple(t.to(device) for t in process_batch(ID2CAP_TRAIN, IMAGE2ID_TRAIN, batch, TOKENIZER))
+            img, cap, mask = process_batch(ID2CAP_TRAIN, IMAGE2ID_TRAIN, batch, TOKENIZER)
+            img, cap, mask = img.to(device), cap.to(device2), mask.to(device2)
+
             img_vec = teacher_net1.forward(vision_net.forward(img))
-            txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+            txt_vec = teacher_net2.forward(text_net.forward(cap, mask)).to(device)
 
             NEG_SPACE.put((cap, mask))
 
@@ -207,10 +216,10 @@ def main(idloss_override=None, queue_size_override=None):
 
             else:
                 neg_cap, neg_mask = NEG_SPACE.get()
-                neg_cap = neg_cap[:neg_cap.size(0)*QUEUE_SIZE]
-                neg_mask = neg_mask[:neg_mask.size(0)*QUEUE_SIZE]
+                neg_cap = neg_cap[:neg_cap.size(0) * QUEUE_SIZE]
+                neg_mask = neg_mask[:neg_mask.size(0) * QUEUE_SIZE]
 
-                neg_vec = teacher_net2.forward(text_net.forward(neg_cap, neg_mask))
+                neg_vec = teacher_net2.forward(text_net.forward(neg_cap, neg_mask)).to(device)
                 loss = ranking_loss2(img_vec, txt_vec, neg_vec)
 
             running_loss.append(loss.item())
@@ -230,15 +239,18 @@ def main(idloss_override=None, queue_size_override=None):
 
             with torch.no_grad():
                 img_vec = teacher_net1.forward(vision_net.forward(img))
-                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                txt_vec = teacher_net2.forward(text_net.forward(cap, mask)).to(device)
                 _, preds, avg_similarity = ranking_loss.return_logits(img_vec, txt_vec)
-                enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(txt_vec)
+                enc1_var, enc2_var = identification_loss.compute_diff(img_vec), identification_loss.compute_diff(
+                    txt_vec)
             running_similarity.append(avg_similarity)
             running_enc1_var.append(enc1_var)
             running_enc2_var.append(enc2_var)
 
             running_corrects += sum([(0 == preds[i]) for i in range(len(preds))])
             total_samples += len(preds)
+
+            torch.cuda.empty_cache()
 
         LOGGER.info("Epoch %d: train loss = %f, max=%f min=%f" % (epoch, np.average(running_loss),
                                                                   np.max(running_loss),
@@ -273,9 +285,11 @@ def main(idloss_override=None, queue_size_override=None):
         vision_net.model.eval()
         with torch.no_grad():
             for step, batch in enumerate(valid_dataloader):
-                img, cap, mask = tuple(t.to(device) for t in batch)
+                img, cap, mask = batch
+                img, cap, mask = img.to(device), cap.to(device2), mask.to(device2)
+
                 img_vec = teacher_net1.forward(vision_net.forward(img))
-                txt_vec = teacher_net2.forward(text_net.forward(cap, mask))
+                txt_vec = teacher_net2.forward(text_net.forward(cap, mask)).to(device)
 
                 loss = ranking_loss(img_vec, txt_vec)
                 running_loss.append(loss.item())
@@ -309,9 +323,9 @@ def main(idloss_override=None, queue_size_override=None):
         WRITER.add_scalar('Var2/val', np.average(running_enc2_var), epoch)
 
         start_time3 = time.time()
-        LOGGER.error("Training took %.3f (aug: %.3f, compute: %.3f)" % (start_time3-start_time,
-                                                                        start_time2-start_time,
-                                                                        start_time3-start_time2))
+        LOGGER.error("Training took %.3f (aug: %.3f, compute: %.3f)" % (start_time3 - start_time,
+                                                                        start_time2 - start_time,
+                                                                        start_time3 - start_time2))
 
     if MY_ARGS.cache == 1:
         torch.save(teacher_net1.state_dict(), "models/enc1-queue-t1-%s" % now.strftime("%Y%m%d-%H%M%S"))
