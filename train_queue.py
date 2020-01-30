@@ -48,14 +48,14 @@ def main(idloss_override=None, queue_size_override=None):
     WRITER = SummaryWriter(logdir)
     LOGGER = utils.Logger()
     PARSER = argparse.ArgumentParser()
-    PARSER.add_argument("--epochs", help="number of epochs", default=250, type=int)
+    PARSER.add_argument("--epochs", help="number of epochs", default=50, type=int)
     PARSER.add_argument("--batchsize", help="batch size", default=64, type=int)
     PARSER.add_argument("--loss_function", help="which loss function", default=1, type=int)
     PARSER.add_argument("--arch", help="which architecture", default=3, type=int)
     PARSER.add_argument("--optim", help="which optim: adam or sgc", default=1, type=int)
     PARSER.add_argument("--verbose", help="print information", default=1, type=int)
     PARSER.add_argument("--queue_size", help="size of queue 0-1", default=1, type=float)
-    PARSER.add_argument("--cache", help="if cache the model", default=0, type=int)
+    PARSER.add_argument("--cache", help="if cache the model", default=1, type=int)
     PARSER.add_argument("--end2end", help="if end to end training", default=1, type=int)
     PARSER.add_argument("--idloss", help="if training with id loss", default=0, type=int)
     PARSER.add_argument("--cropping", help="if randomly crop train images", default=1, type=int)
@@ -359,6 +359,26 @@ def main(idloss_override=None, queue_size_override=None):
                                                                           MY_ARGS.optim)
     fig.savefig(fig_dir)
     print("plotting figures save at %s" % fig_dir)
+
+    text_net.model.cpu()
+    teacher_net2.cpu()
+    vision_net.model.cpu()
+    teacher_net1.cpu()
+    img.cpu()
+    cap.cpu()
+    mask.cpu()
+    img_vec.cpu()
+    txt_vec.cpu()
+
+    del ranking_loss
+    del ranking_loss2
+    del identification_loss
+    del text_net
+    del vision_net
+    del teacher_net1
+    del teacher_net2
+
+    torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':
