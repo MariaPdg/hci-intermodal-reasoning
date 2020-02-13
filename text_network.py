@@ -9,6 +9,14 @@ import torch.nn as nn
 
 
 def forward_layer(self, input_ids, attention_mask=None, head_mask=None):
+    """
+    used to forward only first components
+    :param self:
+    :param input_ids:
+    :param attention_mask:
+    :param head_mask:
+    :return:
+    """
     distilbert_output = self.distilbert(input_ids=input_ids,
                                         attention_mask=attention_mask,
                                         head_mask=head_mask)

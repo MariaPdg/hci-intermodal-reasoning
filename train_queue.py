@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import queue
-import GPUtil
 from transformers import DistilBertTokenizer
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler

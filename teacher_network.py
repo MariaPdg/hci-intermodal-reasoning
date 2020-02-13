@@ -4,6 +4,9 @@ import torch
 
 
 class TeacherNet3query(nn.Module):
+    """
+    encoder
+    """
     def __init__(self):
         super(TeacherNet3query, self).__init__()
         self.linear0 = nn.Linear(in_features=2048, out_features=768)
@@ -25,6 +28,9 @@ class TeacherNet3query(nn.Module):
 
 
 class TeacherNet3key(nn.Module):
+    """
+    decoder
+    """
     def __init__(self):
         super(TeacherNet3key, self).__init__()
         self.linear1 = nn.Linear(in_features=768, out_features=1024)
@@ -72,6 +78,9 @@ class RankingLossFunc(nn.Module):
 
 
 class ContrastiveLoss(nn.Module):
+    """
+    NCE loss with queue
+    """
     def __init__(self, temp, dev):
         super(ContrastiveLoss, self).__init__()
         self.temp = 0.07
@@ -101,6 +110,9 @@ class ContrastiveLoss(nn.Module):
 
 
 class ContrastiveLossInBatch(nn.Module):
+    """
+    NCE loss within the batch
+    """
     def __init__(self, temp, dev):
         super(ContrastiveLossInBatch, self).__init__()
         self.temp = 0.07
@@ -142,6 +154,9 @@ class ContrastiveLossInBatch(nn.Module):
 
 
 class ContrastiveLossReRank(nn.Module):
+    """
+    NCE loss with rerank
+    """
     def __init__(self, temp, dev):
         super(ContrastiveLossReRank, self).__init__()
         self.temp = 0.07
@@ -220,6 +235,9 @@ class IdentificationLossInBatch(nn.Module):
 
 
 class CustomedQueue:
+    """
+    queue to store negative samples
+    """
     def __init__(self, max_size=1024):
         self.neg_keys = []
         self.size = 0

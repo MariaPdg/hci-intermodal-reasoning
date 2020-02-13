@@ -18,6 +18,15 @@ from datetime import datetime
 
 
 def process_batch(id2cap, img2id, _batch, _tokenizer, _prob=0.5):
+    """
+    process one batch
+    :param id2cap: dict
+    :param img2id: dict
+    :param _batch:
+    :param _tokenizer:
+    :param _prob: probability to sample attention maps
+    :return:
+    """
     _images, _att_maps, _paths = _batch
 
     for du19 in range(_images.size(0)):

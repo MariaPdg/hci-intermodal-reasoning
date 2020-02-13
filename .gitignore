@@ -1,5 +1,7 @@
 dataset/
+images/
 figures/
+tb/
 .idea/
 hci/
 original/.vector_cache/

@@ -8,16 +8,16 @@ import os
 
 plotly.io.orca.config.executable = "/home/sontung/Tools/orca"
 json_files = [
-    ["run-20191212-131657-tag-Accuracy_val.json", "1"],
-    ["run-20191218-121815-tag-Accuracy_val.json", "2"],
-    ["run-20191219-111227-tag-Accuracy_val.json", "3"],
-    ["run-20200104-113614-tag-Accuracy_val.json", "4"],
-    ["run-20200106-234433-tag-Accuracy_val.json", "5"]
+    ["run-20200130-094428-tag-Accuracy_val.json", "64"],
+    ["run-20200130-132211-tag-Accuracy_val.json", "48"],
+    ["run-20200130-164433-tag-Accuracy_val.json", "32"],
+    ["run-20200130-195234-tag-Accuracy_val.json", "16"],
 ]
+
 all_data = []
 names = []
 for json_file, name in json_files:
-    with open("logs/%s" % json_file) as json_file:
+    with open("tb/%s" % json_file) as json_file:
         data = json.load(json_file)
     data_entry1 = [du[2] for du in data]
     all_data.append(data_entry1)
@@ -38,7 +38,7 @@ for idx, data_entry in enumerate(all_data):
     )
 
 fig.update_layout(
-    title="Accuracy on Val set",
+    title="Accuracy when with various batch size",
     xaxis_title="epoch",
     yaxis_title="accuracy",
     font=dict(
@@ -54,5 +54,5 @@ fig.show()
 if not os.path.exists("images"):
     os.mkdir("images")
 
-fig.write_image("images/test.png")
+fig.write_image("images/test.png", width=1000, height=None)
 

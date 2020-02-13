@@ -6,6 +6,12 @@ import types
 
 
 def forward_layer(self, y):
+    """
+    used to return only parts of the network
+    :param self:
+    :param y:
+    :return:
+    """
     y = self.conv1(y)
     y = self.bn1(y)
     y = self.relu(y)

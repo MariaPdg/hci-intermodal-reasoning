@@ -84,6 +84,12 @@ def new_get(self, index):
 
 
 def new_get_att_maps(self, index):
+    """
+    Also returns attention map and path
+    :param self:
+    :param index:
+    :return:
+    """
     seed = np.random.randint(2147483647)  # make a seed with numpy generator
     norm_transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
@@ -221,6 +227,11 @@ def read_relevant_images():
 
 
 def calculate_nb_params(models):
+    """
+    returns size of model
+    :param models:
+    :return:
+    """
     res = 0
     for model in models:
         model_parameters = filter(lambda p: p.requires_grad, model.parameters())
@@ -272,8 +283,9 @@ def cache_dot(which):
     torch.save(result, "cached_data/%s_attention" % which)
     return result
 
+
 if __name__ == "__main__":
-    # cache_data("train", -1)
+    cache_data("train", -1)
     cache_data("val", -1)
 
 

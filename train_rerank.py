@@ -12,7 +12,6 @@ import random
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-import GPUtil
 import sys
 from transformers import DistilBertTokenizer
 from torch.utils.tensorboard import SummaryWriter
