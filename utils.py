@@ -285,6 +285,7 @@ def cache_dot(which):
 
 
 if __name__ == "__main__":
+    read_relevant_images()
     cache_data("train", -1)
     cache_data("val", -1)
 
