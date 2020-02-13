@@ -5,7 +5,7 @@
 * MS-coco: download and place under "dataset" folder.
 * Salicon: download and place under "dataset" folder.
 * run `python utils.py`
-Or download from ...
+Or download from [here](https://drive.google.com/file/d/1hE0zkUsGYb1iHXstQL8Z1swwH_un1gc5/view?usp=sharing).
 ### Training
 Depends on which sampling algorithm,
  * batch sampling: `python train_two_encoders.py`
