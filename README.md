@@ -16,3 +16,10 @@ Depends on which sampling algorithm,
 Note: training expects high GPU memory usage, so either use a single GPU with more than 10GB or two GPUs. If it is the former case, change argument `multi` to `0`.
 ### Inference
 See `inference_with_two_enc.py`.
+
+### Visualization
+You can vizualize the results via Tensorboard, specify the path to the logs
+
+```
+tensorboard --logdir=path/to/the/log
+```
