@@ -3,7 +3,7 @@
 This work is focused on finding of intermodal correspondences between textual and visual modalities with incorporation gaze
 information as a regularization technique.
 
-<div style="text-align:center"><img src="/intro_image.png" width="500px"></div>
+<p align="center"><img src="/intro_image.png" width="500px"/></p>
 
 ### Datasets
 * MS-coco: download and place under "dataset" folder.
