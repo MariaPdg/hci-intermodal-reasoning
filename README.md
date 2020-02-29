@@ -35,5 +35,5 @@ Set the name(timeline) of your pre-trained model:
 timeline = "20200130-130202"
 ````
 ### Models
-We provide a sample model pre-trained with sampling algorithim (queue size 0.3)
+We provide a sample model pre-trained with the queue sampling algorithim (queue size 0.3)
 Download from [here](https://drive.google.com/file/d/1KVhywaF1U17OJgHqNFOkba113WUTGogi/view?usp=sharing).
