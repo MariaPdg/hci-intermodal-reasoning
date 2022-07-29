@@ -10,7 +10,7 @@ information as a regularization technique.
 * Salicon: download and place under "dataset" folder.
 * run `python utils.py`
 
-Or download from [here](https://drive.google.com/file/d/1hE0zkUsGYb1iHXstQL8Z1swwH_un1gc5/view?usp=sharing).
+Or download from [here](https://drive.google.com/drive/folders/1tCoSi5jmMLpTzYaldi-B5SB0-dLb7mrJ?usp=sharing).
 ### Training
 Depends on which sampling algorithm,
  * batch sampling: `python train_two_encoders.py`
@@ -36,4 +36,4 @@ timeline = "20200130-130202"
 ````
 ### Models
 We provide a sample model pre-trained with the queue sampling algorithim (queue size 0.3)
-Download from [here](https://drive.google.com/file/d/1KVhywaF1U17OJgHqNFOkba113WUTGogi/view?usp=sharing).
+Download from [here](https://drive.google.com/drive/folders/1tCoSi5jmMLpTzYaldi-B5SB0-dLb7mrJ?usp=sharing).
